@@ -29,7 +29,7 @@ public sealed class ChameleonClient : IAsyncDisposable
     public static async Task<ChameleonClient> StartAsync(
         IPEndPoint serverEndPoint, KeyPair clientStatic, byte[] serverStaticPublic,
         IPEndPoint socksEndPoint, uint carrierId = 1, CarrierWrapper? carrier = null,
-        CancellationToken cancellationToken = default)
+        TrafficShaper? shaper = null, CancellationToken cancellationToken = default)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         await socket.ConnectAsync(serverEndPoint, cancellationToken).ConfigureAwait(false);
@@ -41,7 +41,7 @@ public sealed class ChameleonClient : IAsyncDisposable
         RecordChannel channel = await ChameleonHandshake.ConnectAsync(
             stream, clientStatic, serverStaticPublic, carrierId, cancellationToken).ConfigureAwait(false);
 
-        var session = ChameleonSession.Start(channel, isClient: true);
+        var session = ChameleonSession.Start(channel, isClient: true, shaper);
 
         var listener = new TcpListener(socksEndPoint);
         listener.Start();

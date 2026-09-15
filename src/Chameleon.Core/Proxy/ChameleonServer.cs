@@ -24,25 +24,29 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly KeyPair _serverStatic;
     private readonly CarrierWrapper? _carrier;
     private readonly DnsEndPoint? _decoy;
+    private readonly TrafficShaper? _shaper;
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
-    private ChameleonServer(TcpListener listener, KeyPair serverStatic, CarrierWrapper? carrier, DnsEndPoint? decoy)
+    private ChameleonServer(TcpListener listener, KeyPair serverStatic, CarrierWrapper? carrier, DnsEndPoint? decoy,
+        TrafficShaper? shaper)
     {
         _listener = listener;
         _serverStatic = serverStatic;
         _carrier = carrier;
         _decoy = decoy;
+        _shaper = shaper;
     }
 
     public IPEndPoint EndPoint => (IPEndPoint)_listener.LocalEndpoint;
 
     public static ChameleonServer Start(
-        IPEndPoint endPoint, KeyPair serverStatic, CarrierWrapper? carrier = null, DnsEndPoint? decoy = null)
+        IPEndPoint endPoint, KeyPair serverStatic, CarrierWrapper? carrier = null, DnsEndPoint? decoy = null,
+        TrafficShaper? shaper = null)
     {
         var listener = new TcpListener(endPoint);
         listener.Start();
-        var server = new ChameleonServer(listener, serverStatic, carrier, decoy);
+        var server = new ChameleonServer(listener, serverStatic, carrier, decoy, shaper);
         server._acceptLoop = Task.Run(() => server.AcceptLoopAsync(server._cts.Token));
         return server;
     }
@@ -95,7 +99,7 @@ public sealed class ChameleonServer : IAsyncDisposable
                 return;
             }
 
-            session = ChameleonSession.Start(outcome.Channel!, isClient: false);
+            session = ChameleonSession.Start(outcome.Channel!, isClient: false, _shaper);
             session.StreamAccepted += stream => _ = DialAndRelayAsync(session, stream, cancellationToken);
 
             await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
@@ -132,6 +136,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             if (buffered.Length > 0)
                 await decoyStream.WriteAsync(buffered, cancellationToken).ConfigureAwait(false);
 
+            // Прозрачная двусторонняя перекачка между зондом и реальным сайтом.
             Task toDecoy = carrier.CopyToAsync(decoyStream, cancellationToken);
             Task toProbe = decoyStream.CopyToAsync(carrier, cancellationToken);
             await Task.WhenAny(toDecoy, toProbe).ConfigureAwait(false);

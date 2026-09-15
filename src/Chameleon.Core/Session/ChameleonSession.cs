@@ -7,39 +7,48 @@ namespace Chameleon.Core.Session;
 
 /// <summary>
 /// Логическая сессия поверх одной несущей (<see cref="RecordChannel"/>).
-/// Мультиплексирует много потоков пользователя в один зашифрованный канал,
-/// раскладывает входящие record'ы на фреймы и разводит их по потокам.
+/// Мультиплексирует много потоков пользователя в один зашифрованный канал.
 ///
-/// Клиент открывает потоки через <see cref="OpenStreamAsync"/>; на сервере
-/// каждый новый поток от клиента приходит в <see cref="StreamAccepted"/>.
+/// Все исходящие record'ы проходят через <see cref="EmitAsync"/>, где
+/// применяется шейпер (<see cref="TrafficShaper"/>): квантование размеров и
+/// прикрытие в простое.
 /// </summary>
 public sealed class ChameleonSession : IAsyncDisposable
 {
-    private const int MaxStreamChunk = Crypto.RecordFormat.MaxPlaintext - 64;
-
     private readonly RecordChannel _channel;
     private readonly bool _isClient;
+    private readonly TrafficShaper _shaper;
     private readonly ConcurrentDictionary<ulong, ChameleonStream> _streams = new();
     private readonly CancellationTokenSource _cts = new();
 
     private long _nextPacketNumber;
     private long _nextStreamId;
+    private long _lastSendTicks;
+    private readonly int _maxStreamChunk;
     private Task? _receiveLoop;
+    private Task? _coverLoop;
 
-    private ChameleonSession(RecordChannel channel, bool isClient)
+    private ChameleonSession(RecordChannel channel, bool isClient, TrafficShaper shaper)
     {
         _channel = channel;
         _isClient = isClient;
+        _shaper = shaper;
         _nextStreamId = isClient ? 1 : 2;
+        _lastSendTicks = Environment.TickCount64;
+
+        int cap = Crypto.RecordFormat.MaxPlaintext - 64;
+        _maxStreamChunk = shaper.Enabled ? Math.Min(cap, shaper.LargestSize - 64) : cap;
     }
 
     /// <summary>Новый поток, открытый удалённой стороной (актуально для сервера).</summary>
     public Action<ChameleonStream>? StreamAccepted { get; set; }
 
-    public static ChameleonSession Start(RecordChannel channel, bool isClient)
+    public static ChameleonSession Start(RecordChannel channel, bool isClient, TrafficShaper? shaper = null)
     {
-        var session = new ChameleonSession(channel, isClient);
+        var session = new ChameleonSession(channel, isClient, shaper ?? TrafficShaper.Off);
         session._receiveLoop = Task.Run(() => session.ReceiveLoopAsync(session._cts.Token));
+        if (session._shaper.Enabled && session._shaper.IdleCoverInterval > TimeSpan.Zero)
+            session._coverLoop = Task.Run(() => session.CoverLoopAsync(session._cts.Token));
         return session;
     }
 
@@ -50,16 +59,9 @@ public sealed class ChameleonSession : IAsyncDisposable
         var stream = new ChameleonStream(this, id, kind, host, port);
         _streams[id] = stream;
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(Crypto.RecordFormat.MaxPlaintext);
-        try
-        {
-            int length = BuildStreamOpen(buffer, NextPacketNumber(), id, kind, host, (ushort)port);
-            await _channel.WriteRecordAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+        await SendBuiltAsync(Crypto.RecordFormat.MaxPlaintext,
+            buffer => BuildStreamOpen(buffer, NextPacketNumber(), id, kind, host, (ushort)port),
+            cancellationToken).ConfigureAwait(false);
 
         return stream;
     }
@@ -70,30 +72,37 @@ public sealed class ChameleonSession : IAsyncDisposable
         int sent = 0;
         while (sent < data.Length)
         {
-            int chunk = Math.Min(MaxStreamChunk, data.Length - sent);
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(Crypto.RecordFormat.MaxPlaintext);
-            try
-            {
-                int length = BuildStreamData(buffer, NextPacketNumber(), streamId,
-                    offset + (ulong)sent, data.Slice(sent, chunk).Span);
-                await _channel.WriteRecordAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
-
+            int chunk = Math.Min(_maxStreamChunk, data.Length - sent);
+            ReadOnlyMemory<byte> slice = data.Slice(sent, chunk);
+            await SendBuiltAsync(Crypto.RecordFormat.MaxPlaintext,
+                buffer => BuildStreamData(buffer, NextPacketNumber(), streamId, offset + (ulong)sent, slice.Span),
+                cancellationToken).ConfigureAwait(false);
             sent += chunk;
         }
     }
 
-    internal async ValueTask SendStreamFinAsync(ulong streamId, ulong finalOffset, CancellationToken cancellationToken)
+    internal ValueTask SendStreamFinAsync(ulong streamId, ulong finalOffset, CancellationToken cancellationToken)
+        => SendBuiltAsync(Crypto.RecordFormat.MaxPlaintext,
+            buffer => BuildStreamFin(buffer, NextPacketNumber(), streamId, finalOffset),
+            cancellationToken);
+
+    public ValueTask ResetStreamAsync(ulong streamId, ulong errorCode = 0,
+        CancellationToken cancellationToken = default)
     {
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(64);
+        _streams.TryRemove(streamId, out _);
+        return SendBuiltAsync(Crypto.RecordFormat.MaxPlaintext,
+            buffer => BuildStreamReset(buffer, NextPacketNumber(), streamId, errorCode),
+            cancellationToken);
+    }
+
+    /// <summary>Собирает пакет в аренду из пула и отправляет через шейпер.</summary>
+    private async ValueTask SendBuiltAsync(int rentSize, Func<byte[], int> build, CancellationToken cancellationToken)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(rentSize);
         try
         {
-            int length = BuildStreamFin(buffer, NextPacketNumber(), streamId, finalOffset);
-            await _channel.WriteRecordAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+            int length = build(buffer);
+            await EmitAsync(buffer, length, targetSize: null, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -101,19 +110,57 @@ public sealed class ChameleonSession : IAsyncDisposable
         }
     }
 
-    public async ValueTask ResetStreamAsync(ulong streamId, ulong errorCode = 0,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Единственная точка записи record'а. Дополняет пакет PADDING'ом до размера,
+    /// который выбирает шейпер (квантование), и обновляет метку последней отправки.
+    /// </summary>
+    private async ValueTask EmitAsync(byte[] buffer, int length, int? targetSize, CancellationToken cancellationToken)
     {
-        _streams.TryRemove(streamId, out _);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(64);
+        if (_shaper.Enabled)
+        {
+            int target = targetSize ?? _shaper.Quantize(length);
+            if (target > length)
+            {
+                Array.Clear(buffer, length, target - length);
+                length = target;
+            }
+        }
+
+        Interlocked.Exchange(ref _lastSendTicks, Environment.TickCount64);
+        await _channel.WriteRecordAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task CoverLoopAsync(CancellationToken cancellationToken)
+    {
+        TimeSpan interval = _shaper.IdleCoverInterval;
         try
         {
-            int length = BuildStreamReset(buffer, NextPacketNumber(), streamId, errorCode);
-            await _channel.WriteRecordAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+
+                long idleMs = Environment.TickCount64 - Interlocked.Read(ref _lastSendTicks);
+                if (idleMs < interval.TotalMilliseconds) continue;
+
+                byte[] buffer = ArrayPool<byte>.Shared.Rent(Crypto.RecordFormat.MaxPlaintext);
+                try
+                {
+                    int length = BuildCover(buffer, NextPacketNumber());
+                    await EmitAsync(buffer, length, targetSize: _shaper.RandomCoverSize(), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                }
+            }
         }
-        finally
+        catch (OperationCanceledException)
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (Exception)
+        {
+            // ignored
         }
     }
 
@@ -129,7 +176,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                 if (n < 0) break;
 
                 frames.Clear();
-                PacketReader.Parse(buffer.AsMemory(0, n), frames);
+                PacketReader.Parse(buffer.AsMemory(0, n), frames); // PADDING-пакеты прикрытия дают 0 фреймов
                 foreach (var frame in frames)
                     await DispatchAsync(frame, cancellationToken).ConfigureAwait(false);
             }
@@ -166,7 +213,6 @@ public sealed class ChameleonSession : IAsyncDisposable
             case StreamResetFrame reset when _streams.TryRemove(reset.StreamId, out var stream):
                 stream.CompleteInbound(new IOException($"Поток сброшен, код {reset.ErrorCode}"));
                 break;
-            // ACK / PING / MAX_DATA / CLOSE - обработка появится с надёжной доставкой и мультипутём
             default:
                 break;
         }
@@ -180,9 +226,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     }
 
     private ulong NextPacketNumber() => (ulong)Interlocked.Increment(ref _nextPacketNumber) - 1;
-
-    // синхронная сборка пакетов (PacketWriter - ref struct, вне async)
-
+    
     private static int BuildStreamOpen(Span<byte> buffer, ulong pn, ulong id, StreamKind kind, string host, ushort port)
     {
         var writer = new PacketWriter(buffer, pn);
@@ -211,18 +255,27 @@ public sealed class ChameleonSession : IAsyncDisposable
         return writer.Length;
     }
 
+    private static int BuildCover(Span<byte> buffer, ulong pn)
+    {
+        var writer = new PacketWriter(buffer, pn);
+        return writer.Length;
+    }
+
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
-        if (_receiveLoop is not null)
+        foreach (var task in new[] { _receiveLoop, _coverLoop })
         {
-            try
+            if (task is not null)
             {
-                await _receiveLoop.ConfigureAwait(false);
-            }
-            catch
-            {
-                /* останавливаемся */
+                try
+                {
+                    await task.ConfigureAwait(false);
+                }
+                catch
+                {
+                    // ignored
+                }
             }
         }
 
