@@ -58,7 +58,8 @@ public static class PacketReader
                     {
                         AddressType.IPv4 => new IPAddress(ReadBytes(span, ref pos, 4)).ToString(),
                         AddressType.IPv6 => new IPAddress(ReadBytes(span, ref pos, 16)).ToString(),
-                        AddressType.Domain => Encoding.UTF8.GetString(ReadBytes(span, ref pos, ReadByte(span, ref pos))),
+                        AddressType.Domain =>
+                            Encoding.UTF8.GetString(ReadBytes(span, ref pos, ReadByte(span, ref pos))),
                         _ => throw Error("Неизвестный тип адреса"),
                     };
                     ushort port = BinaryPrimitives.ReadUInt16BigEndian(ReadBytes(span, ref pos, 2));

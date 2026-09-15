@@ -13,10 +13,10 @@ public sealed record HandshakeResult(byte[] SessionSecret, byte[] RemoteStaticPu
 ///   msg2 (server → client): e, ee, se
 ///
 /// Что это даёт:
-///  • клиент аутентифицирует сервер по заранее известному ключу - активный зонд
+///  1 клиент аутентифицирует сервер по заранее известному ключу - активный зонд
 ///    цензора, не знающий его, не пройдёт;
-///  • статический ключ клиента передаётся уже зашифрованным (токен s внутри AEAD);
-///  • forward secrecy за счёт эфемерных ключей с обеих сторон.
+///  2 статический ключ клиента передаётся уже зашифрованным (токен s внутри AEAD);
+///  3 forward secrecy за счёт эфемерных ключей с обеих сторон.
 ///
 /// Payload в msg1 держим пустым: сообщение может быть переиграно (replay) на сервер,
 /// поэтому полезные данные отправляются только после msg2, по установленным ключам.
@@ -30,8 +30,8 @@ public sealed class NoiseIkHandshake
     private const int TagLen = 16;
 
     // Длины сообщений на проводе при пустом payload:
-    public const int Message1Length = DhLen + (DhLen + TagLen) + TagLen; // e ‖ enc(s) ‖ enc(∅) = 96
-    public const int Message2Length = DhLen + TagLen; // e ‖ enc(∅)      = 48
+    public const int Message1Length = DhLen + (DhLen + TagLen) + TagLen;
+    public const int Message2Length = DhLen + TagLen;
 
     private readonly SymmetricState _symmetric = new();
     private readonly bool _initiator;

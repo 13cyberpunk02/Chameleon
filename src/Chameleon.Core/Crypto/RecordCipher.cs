@@ -34,21 +34,18 @@ public static class RecordFormat
         return BinaryPrimitives.ReadUInt16BigEndian(output);
     }
 
-    internal static (ChaCha20Poly1305 Aead, Aes Mask) CreateCiphers(DirectionKeys keys)
+    internal static (Aead Aead, Aes Mask) CreateCiphers(DirectionKeys keys)
     {
-        if (!ChaCha20Poly1305.IsSupported)
-            throw new PlatformNotSupportedException("ChaCha20-Poly1305 недоступен на этой платформе");
-
         var aes = Aes.Create();
         aes.Key = keys.MaskKey;
-        return (new ChaCha20Poly1305(keys.AeadKey), aes);
+        return (new Aead(keys.AeadKey), aes);
     }
 }
 
 /// <summary>Шифрует исходящие record'ы. Не потокобезопасен: вызывающий обязан сериализовать вызовы.</summary>
 public sealed class RecordSealer : IDisposable
 {
-    private readonly ChaCha20Poly1305 _aead;
+    private readonly Aead _aead;
     private readonly Aes _mask;
     private ulong _counter;
 
@@ -90,7 +87,7 @@ public sealed class RecordSealer : IDisposable
 /// <summary>Расшифровывает входящие record'ы. Счётчик сдвигается только после успешной проверки тега.</summary>
 public sealed class RecordOpener : IDisposable
 {
-    private readonly ChaCha20Poly1305 _aead;
+    private readonly Aead _aead;
     private readonly Aes _mask;
     private ulong _counter;
 
@@ -108,6 +105,7 @@ public sealed class RecordOpener : IDisposable
     }
 
     /// <param name="body">Шифротекст вместе с тегом (без 2 байт заголовка).</param>
+    /// <param name="destination">Цель конечная</param>
     public int Open(ReadOnlySpan<byte> body, Span<byte> destination)
     {
         int plaintextLength = body.Length - RecordFormat.TagSize;

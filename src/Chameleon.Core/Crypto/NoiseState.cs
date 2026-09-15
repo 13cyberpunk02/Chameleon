@@ -32,7 +32,7 @@ internal sealed class CipherState
 
         Span<byte> nonce = stackalloc byte[12];
         WriteNonce(nonce, _nonce);
-        using var aead = new ChaCha20Poly1305(_key);
+        using var aead = new Aead(_key);
         aead.Encrypt(nonce, plaintext, ciphertext, tag, associatedData);
 
         _nonce++;
@@ -50,7 +50,7 @@ internal sealed class CipherState
 
         Span<byte> nonce = stackalloc byte[12];
         WriteNonce(nonce, _nonce);
-        using var aead = new ChaCha20Poly1305(_key);
+        using var aead = new Aead(_key);
         try
         {
             aead.Decrypt(nonce, ciphertext[..plaintextLength], ciphertext[plaintextLength..], plaintext,

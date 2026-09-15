@@ -72,7 +72,8 @@ async Task RunServerAsync(TcpListener l, KeyPair serverKeys, uint carrier)
             Console.WriteLine(frame switch
             {
                 StreamOpenFrame f => $"[server]   STREAM_OPEN {f.Kind} -> {f.Host}:{f.Port}",
-                StreamFrame f => $"[server]   STREAM «{Encoding.UTF8.GetString(f.Data.Span).ReplaceLineEndings("\\n")}»",
+                StreamFrame f =>
+                    $"[server]   STREAM «{Encoding.UTF8.GetString(f.Data.Span).ReplaceLineEndings("\\n")}»",
                 _ => $"[server]   {frame}",
             });
 
@@ -106,7 +107,7 @@ async Task ProbeTestAsync(KeyPair serverKeys, uint carrier)
         await probe.ConnectAsync(IPAddress.Loopback, p);
         byte[] junk = new byte[NoiseIkHandshake.Message1Length];
         Random.Shared.NextBytes(junk);
-        byte[] framed = [(byte)(junk.Length >> 8), (byte)junk.Length, .. junk];
+        byte[] framed = [.. new byte[] { (byte)(junk.Length >> 8), (byte)junk.Length }, .. junk];
         await probe.GetStream().WriteAsync(framed);
         await probe.GetStream().FlushAsync();
     }

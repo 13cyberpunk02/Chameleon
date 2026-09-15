@@ -13,9 +13,18 @@ public enum FrameType : byte
     Close = 0x08,
 }
 
-public enum StreamKind : byte { Tcp = 0, Udp = 1 }
+public enum StreamKind : byte
+{
+    Tcp = 0,
+    Udp = 1
+}
 
-public enum AddressType : byte { IPv4 = 1, IPv6 = 2, Domain = 3 }
+public enum AddressType : byte
+{
+    IPv4 = 1,
+    IPv6 = 2,
+    Domain = 3
+}
 
 /// <summary>Диапазон в ACK: сколько пакетов пропущено (Gap) и сколько подтверждено (Length).</summary>
 public readonly record struct AckRange(ulong Gap, ulong Length);

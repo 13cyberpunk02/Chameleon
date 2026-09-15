@@ -32,6 +32,7 @@ public static class VarInt
             case 4: BinaryPrimitives.WriteUInt32BigEndian(destination, (uint)(value | 0x8000_0000)); break;
             default: BinaryPrimitives.WriteUInt64BigEndian(destination, value | 0xC000_0000_0000_0000); break;
         }
+
         return size;
     }
 
