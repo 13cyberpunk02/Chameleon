@@ -1,1 +1,6 @@
-<Solution />
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Chameleon.Core/Chameleon.Core.csproj" />
+    <Project Path="src/Chameleon.Playground/Chameleon.Playground.csproj" />
+  </Folder>
+</Solution>
