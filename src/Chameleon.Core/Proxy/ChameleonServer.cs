@@ -10,7 +10,11 @@ namespace Chameleon.Core.Proxy;
 /// <summary>
 /// Сервер: принимает несущие, проводит рукопожатие и для каждого потока клиента
 /// открывает реальное TCP-соединение к запрошенному адресу.
-/// Несущую задаёт <see cref="CarrierWrapper"/>: голый TCP или TLS.
+///
+/// Если входящее соединение - не наш клиент (мусор или активный зонд), сервер
+/// работает как обратный прокси к сайту-декою (<paramref name="decoy"/>): зонд
+/// видит живой настоящий сайт, а не заглушку. Если декой не задан - отдаётся
+/// минимальная статическая страница.
 /// </summary>
 public sealed class ChameleonServer : IAsyncDisposable
 {
@@ -19,23 +23,26 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly TcpListener _listener;
     private readonly KeyPair _serverStatic;
     private readonly CarrierWrapper? _carrier;
+    private readonly DnsEndPoint? _decoy;
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
-    private ChameleonServer(TcpListener listener, KeyPair serverStatic, CarrierWrapper? carrier)
+    private ChameleonServer(TcpListener listener, KeyPair serverStatic, CarrierWrapper? carrier, DnsEndPoint? decoy)
     {
         _listener = listener;
         _serverStatic = serverStatic;
         _carrier = carrier;
+        _decoy = decoy;
     }
 
     public IPEndPoint EndPoint => (IPEndPoint)_listener.LocalEndpoint;
 
-    public static ChameleonServer Start(IPEndPoint endPoint, KeyPair serverStatic, CarrierWrapper? carrier = null)
+    public static ChameleonServer Start(
+        IPEndPoint endPoint, KeyPair serverStatic, CarrierWrapper? carrier = null, DnsEndPoint? decoy = null)
     {
         var listener = new TcpListener(endPoint);
         listener.Start();
-        var server = new ChameleonServer(listener, serverStatic, carrier);
+        var server = new ChameleonServer(listener, serverStatic, carrier, decoy);
         server._acceptLoop = Task.Run(() => server.AcceptLoopAsync(server._cts.Token));
         return server;
     }
@@ -72,24 +79,23 @@ public sealed class ChameleonServer : IAsyncDisposable
                 ? new NetworkStream(socket, ownsSocket: true)
                 : await _carrier(socket, cancellationToken).ConfigureAwait(false);
 
-            RecordChannel channel;
-            try
+            AcceptOutcome outcome;
+            using (var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 handshakeCts.CancelAfter(HandshakeTimeout);
-                (channel, _) = await ChameleonHandshake
-                    .AcceptAsync(carrierStream, _serverStatic, carrierId: 1, handshakeCts.Token).ConfigureAwait(false);
+                outcome = await ChameleonHandshake
+                    .TryAcceptAsync(carrierStream, _serverStatic, carrierId: 1, handshakeCts.Token)
+                    .ConfigureAwait(false);
             }
-            catch (Exception) when (carrierStream is not null)
+
+            if (!outcome.Succeeded)
             {
-                // Внутреннее рукопожатие не прошло: мусор или активный зонд.
-                // Внутри TLS отвечаем как обычный веб-сервер, чтобы зонд увидел «просто сайт».
-                await ServeCoverResponseAsync(carrierStream).ConfigureAwait(false);
+                await ServeCoverAsync(carrierStream, outcome.Buffered, cancellationToken).ConfigureAwait(false);
                 await carrierStream.DisposeAsync().ConfigureAwait(false);
                 return;
             }
 
-            session = ChameleonSession.Start(channel, isClient: false);
+            session = ChameleonSession.Start(outcome.Channel!, isClient: false);
             session.StreamAccepted += stream => _ = DialAndRelayAsync(session, stream, cancellationToken);
 
             await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
@@ -106,10 +112,37 @@ public sealed class ChameleonServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// Заглушка прикрытия: минимальный HTTP-ответ. Полноценный вариант (обратный
-    /// прокси на реальный сайт-декой, как в Reality) - следующий подэтап.
+    /// Прикрытие для чужака: обратный прокси к сайту-декою (сначала переигрываем
+    /// уже прочитанные байты), либо статическая страница, если декой не задан.
     /// </summary>
-    private static async Task ServeCoverResponseAsync(Stream stream)
+    private async Task ServeCoverAsync(Stream carrier, byte[] buffered, CancellationToken cancellationToken)
+    {
+        if (_decoy is null)
+        {
+            await ServeStaticPageAsync(carrier).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            using var decoy = new TcpClient();
+            await decoy.ConnectAsync(_decoy.Host, _decoy.Port, cancellationToken).ConfigureAwait(false);
+            Stream decoyStream = decoy.GetStream();
+
+            if (buffered.Length > 0)
+                await decoyStream.WriteAsync(buffered, cancellationToken).ConfigureAwait(false);
+
+            Task toDecoy = carrier.CopyToAsync(decoyStream, cancellationToken);
+            Task toProbe = decoyStream.CopyToAsync(carrier, cancellationToken);
+            await Task.WhenAny(toDecoy, toProbe).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            await ServeStaticPageAsync(carrier).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task ServeStaticPageAsync(Stream stream)
     {
         const string body =
             "<!doctype html><html><head><title>Welcome</title></head><body><h1>It works!</h1></body></html>";

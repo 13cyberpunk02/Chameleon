@@ -6,103 +6,104 @@ using Chameleon.Core.Crypto;
 using Chameleon.Core.Proxy;
 using Chameleon.Core.Transport;
 
-// Сквозная проверка ПОВЕРХ TLS: реальный HTTP-запрос через SOCKS5 → клиент → сервер → «сайт».
-// Снаружи между клиентом и сервером - обычное TLS-соединение.
-//
-//   HttpClient ─socks5─▶ ChameleonClient ═══TLS(Noise+record)═══▶ ChameleonServer ─tcp─▶ origin
+// Проверка TLS-туннеля + декой-прокси.
+//   HttpClient ─socks5─▶ ChameleonClient ═══TLS═══▶ ChameleonServer ─tcp─▶ origin
+//   Зонд ───────────────https без ключа──────────▶ ChameleonServer ─tcp─▶ ДЕКОЙ-сайт
 
 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-const string sni = "www.example-cdn.com"; // домен прикрытия (SNI)
+const string sni = "www.example-cdn.com";
 
-// 1. Локальный «сайт».
-using var origin = new HttpListener();
-int originPort = FreePort();
-origin.Prefixes.Add($"http://127.0.0.1:{originPort}/");
-origin.Start();
-_ = Task.Run(async () =>
-{
-    while (origin.IsListening)
-    {
-        HttpListenerContext ctx;
-        try
-        {
-            ctx = await origin.GetContextAsync();
-        }
-        catch
-        {
-            break;
-        }
+int originPort = StartHttp("origin", "Hello from origin");
+int decoyPort = StartHttp("decoy", "Totally normal website. Nothing to see here.");
+Console.WriteLine($"origin:  http://127.0.0.1:{originPort}/  (цель прокси)");
+Console.WriteLine($"decoy:   http://127.0.0.1:{decoyPort}/  (сайт-прикрытие)");
 
-        byte[] body = Encoding.UTF8.GetBytes($"Hello from origin, path={ctx.Request.Url?.AbsolutePath}");
-        ctx.Response.ContentType = "text/plain";
-        ctx.Response.ContentLength64 = body.Length;
-        await ctx.Response.OutputStream.WriteAsync(body);
-        ctx.Response.Close();
-    }
-});
-Console.WriteLine($"origin:  http://127.0.0.1:{originPort}/");
-
-// 2. Ключи Noise + самоподписанный TLS-сертификат сервера.
 KeyPair serverStatic = X25519.GenerateKeyPair();
 KeyPair clientStatic = X25519.GenerateKeyPair();
 using var certificate = TlsCarrier.CreateSelfSignedCertificate(sni);
 
-// 3. Сервер с TLS-несущей.
 await using var server = ChameleonServer.Start(
-    new IPEndPoint(IPAddress.Loopback, 0), serverStatic, TlsCarrier.Server(certificate));
-Console.WriteLine($"server:  {server.EndPoint} (TLS)");
+    new IPEndPoint(IPAddress.Loopback, 0), serverStatic,
+    TlsCarrier.Server(certificate),
+    decoy: new DnsEndPoint("127.0.0.1", decoyPort));
+Console.WriteLine($"server:  {server.EndPoint} (TLS, декой включён)");
 
-// 4. Клиент с TLS-несущей; печатаем согласованные параметры TLS.
 CarrierWrapper clientCarrier = TlsCarrier.Client(sni, onHandshake: tls =>
-    Console.WriteLine(
-        $"   TLS:  {tls.SslProtocol}, ALPN={tls.NegotiatedApplicationProtocol}, {tls.NegotiatedCipherSuite}"));
+    Console.WriteLine($"   TLS:  {tls.SslProtocol}, ALPN={tls.NegotiatedApplicationProtocol}"));
 
 await using var client = await ChameleonClient.StartAsync(
     server.EndPoint, clientStatic, serverStatic.Public,
     new IPEndPoint(IPAddress.Loopback, 0), carrier: clientCarrier, cancellationToken: cts.Token);
 Console.WriteLine($"socks5:  {client.SocksEndPoint}\n");
 
-// 5. Реальные HTTP-запросы через SOCKS5 (две штуки - мультиплексирование).
+// 1) Легитимный клиент через туннель → должен попасть на origin.
 var handler = new SocketsHttpHandler
 {
     Proxy = new WebProxy($"socks5://127.0.0.1:{client.SocksEndPoint.Port}"),
     UseProxy = true,
 };
 using var http = new HttpClient(handler);
+string tunneled = await http.GetStringAsync($"http://127.0.0.1:{originPort}/hello", cts.Token);
+Console.WriteLine($"клиент через туннель → «{tunneled}»");
 
-Console.WriteLine("→ GET /hello через TLS-туннель…");
-string r1 = await http.GetStringAsync($"http://127.0.0.1:{originPort}/hello", cts.Token);
-Console.WriteLine($"← «{r1}»");
-string r2 = await http.GetStringAsync($"http://127.0.0.1:{originPort}/second", cts.Token);
-Console.WriteLine($"← «{r2}»");
+// 2) Активный зонд: TLS есть, ключа Noise нет → должен попасть на ДЕКОЙ.
+string probed;
+using (var probe = new HttpClient(new SocketsHttpHandler
+       {
+           SslOptions = new SslClientAuthenticationOptions
+           {
+               TargetHost = sni,
+               RemoteCertificateValidationCallback = (_, _, _, _) => true,
+           },
+       }))
+{
+    probed = await probe.GetStringAsync($"https://127.0.0.1:{server.EndPoint.Port}/", cts.Token);
+}
 
-Console.WriteLine(r1.Contains("Hello from origin") && r2.Contains("second")
-    ? "\nИТОГ: прокси работает поверх TLS, потоки мультиплексируются."
+Console.WriteLine($"зонд без ключа     → «{probed}»");
+
+bool ok = tunneled.Contains("Hello from origin")
+          && probed.Contains("Totally normal website")
+          && !probed.Contains("Hello from origin"); // зонд НЕ должен видеть настоящую цель
+Console.WriteLine(ok
+    ? "\nИТОГ: клиент идёт на origin, зонд видит декой-сайт. Прикрытие работает."
     : "\nИТОГ: что-то не так.");
 
-// 6. Активный зонд: TLS есть, но ключа Noise нет - должен увидеть «просто сайт».
-Console.WriteLine("\n--- активный зонд (TLS без ключа Noise) ---");
-try
+static int StartHttp(string name, string message)
 {
-    using var probe = new HttpClient(new SocketsHttpHandler
+    int port = FreePort();
+    var listener = new HttpListener();
+    listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+    listener.Start();
+    _ = Task.Run(async () =>
     {
-        SslOptions = new SslClientAuthenticationOptions
+        while (listener.IsListening)
         {
-            TargetHost = sni,
-            RemoteCertificateValidationCallback = (_, _, _, _) => true,
-        },
-    });
-    string coverPage = await probe.GetStringAsync($"https://127.0.0.1:{server.EndPoint.Port}/", cts.Token);
-    Console.WriteLine(coverPage.Contains("It works")
-        ? "зонд увидел обычную веб-страницу прикрытия (не распознал прокси)"
-        : $"зонд получил: {coverPage[..Math.Min(60, coverPage.Length)]}");
-}
-catch (Exception e)
-{
-    Console.WriteLine($"зонд: {e.GetType().Name}");
-}
+            HttpListenerContext ctx;
+            try
+            {
+                ctx = await listener.GetContextAsync();
+            }
+            catch
+            {
+                break;
+            }
 
-origin.Stop();
+            byte[] body = Encoding.UTF8.GetBytes($"{message} (path={ctx.Request.Url?.AbsolutePath})");
+            ctx.Response.ContentType = "text/plain";
+            ctx.Response.ContentLength64 = body.Length;
+            try
+            {
+                await ctx.Response.OutputStream.WriteAsync(body);
+                ctx.Response.Close();
+            }
+            catch
+            {
+            }
+        }
+    });
+    return port;
+}
 
 static int FreePort()
 {
