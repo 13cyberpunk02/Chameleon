@@ -1,135 +1,114 @@
 ﻿using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
-using Chameleon.Core;
 using Chameleon.Core.Crypto;
-using Chameleon.Core.Protocol;
+using Chameleon.Core.Proxy;
 using Chameleon.Core.Transport;
 
-// Пара ключей сервера. Публичный ключ клиент знает заранее (как в VLESS/Reality),
-// приватный есть только у сервера. carrier_id = 1 (позже несущих будет несколько).
-KeyPair serverStatic = X25519.GenerateKeyPair();
-KeyPair clientStatic = X25519.GenerateKeyPair();
-uint carrierId = 1;
+// Сквозная проверка ПОВЕРХ TLS: реальный HTTP-запрос через SOCKS5 → клиент → сервер → «сайт».
+// Снаружи между клиентом и сервером - обычное TLS-соединение.
+//
+//   HttpClient ─socks5─▶ ChameleonClient ═══TLS(Noise+record)═══▶ ChameleonServer ─tcp─▶ origin
 
-Console.WriteLine($"server pub: {Convert.ToHexString(serverStatic.Public)[..16]}…");
-Console.WriteLine($"client pub: {Convert.ToHexString(clientStatic.Public)[..16]}…\n");
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+const string sni = "www.example-cdn.com"; // домен прикрытия (SNI)
 
-var listener = new TcpListener(IPAddress.Loopback, 0);
-listener.Start();
-int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-
-Task server = RunServerAsync(listener, serverStatic, carrierId);
-await RunClientAsync(port, clientStatic, serverStatic.Public, carrierId);
-await server;
-
-await ProbeTestAsync(serverStatic, carrierId);
-
-listener.Stop();
-
-async Task RunClientAsync(int p, KeyPair clientKeys, byte[] serverPub, uint carrier)
+// 1. Локальный «сайт».
+using var origin = new HttpListener();
+int originPort = FreePort();
+origin.Prefixes.Add($"http://127.0.0.1:{originPort}/");
+origin.Start();
+_ = Task.Run(async () =>
 {
-    using var tcp = new TcpClient();
-    await tcp.ConnectAsync(IPAddress.Loopback, p);
-    await using var channel = await ChameleonHandshake.ConnectAsync(tcp.GetStream(), clientKeys, serverPub, carrier);
-    Console.WriteLine("[client] рукопожатие Noise IK завершено, сессионные ключи получены");
-
-    await channel.WriteRecordAsync(BuildRequestPacket());
-    Console.WriteLine("[client] отправлен зашифрованный пакет через согласованные ключи");
-
-    byte[] buffer = new byte[RecordFormat.MaxPlaintext];
-    int n = await channel.ReadRecordAsync(buffer);
-    var frames = new List<Frame>();
-    PacketReader.Parse(buffer.AsMemory(0, n), frames);
-    Console.WriteLine($"[client] получен ответ, фреймов: {frames.Count} ({frames[0]})");
-}
-
-async Task RunServerAsync(TcpListener l, KeyPair serverKeys, uint carrier)
-{
-    using var tcp = await l.AcceptTcpClientAsync();
-    RecordChannel channel;
-    byte[] clientIdentity;
-    try
+    while (origin.IsListening)
     {
-        (channel, clientIdentity) = await ChameleonHandshake.AcceptAsync(tcp.GetStream(), serverKeys, carrier);
-    }
-    catch (ChameleonProtocolException e)
-    {
-        Console.WriteLine($"[server] рукопожатие отвергнуто: {e.Message}");
-        return;
-    }
-
-    await using (channel)
-    {
-        Console.WriteLine($"[server] клиент аутентифицирован: {Convert.ToHexString(clientIdentity)[..16]}…");
-
-        byte[] buffer = new byte[RecordFormat.MaxPlaintext];
-        int n = await channel.ReadRecordAsync(buffer);
-        var frames = new List<Frame>();
-        PacketReader.Parse(buffer.AsMemory(0, n), frames);
-
-        foreach (var frame in frames)
-            Console.WriteLine(frame switch
-            {
-                StreamOpenFrame f => $"[server]   STREAM_OPEN {f.Kind} -> {f.Host}:{f.Port}",
-                StreamFrame f =>
-                    $"[server]   STREAM «{Encoding.UTF8.GetString(f.Data.Span).ReplaceLineEndings("\\n")}»",
-                _ => $"[server]   {frame}",
-            });
-
-        await channel.WriteRecordAsync(BuildAckPacket(0));
-    }
-}
-
-async Task ProbeTestAsync(KeyPair serverKeys, uint carrier)
-{
-    Console.WriteLine("\n--- проверка на активный зонд ---");
-    var l = new TcpListener(IPAddress.Loopback, 0);
-    l.Start();
-    int p = ((IPEndPoint)l.LocalEndpoint).Port;
-
-    Task serverSide = Task.Run(async () =>
-    {
-        using var tcp = await l.AcceptTcpClientAsync();
+        HttpListenerContext ctx;
         try
         {
-            await ChameleonHandshake.AcceptAsync(tcp.GetStream(), serverKeys, carrier);
-            Console.WriteLine("[server] ОШИБКА: зонд прошёл рукопожатие");
+            ctx = await origin.GetContextAsync();
         }
-        catch (ChameleonProtocolException)
+        catch
         {
-            Console.WriteLine("[server] зонд отвергнут, соединение закрыто без ответа");
+            break;
         }
-    });
 
-    using (var probe = new TcpClient())
-    {
-        await probe.ConnectAsync(IPAddress.Loopback, p);
-        byte[] junk = new byte[NoiseIkHandshake.Message1Length];
-        Random.Shared.NextBytes(junk);
-        byte[] framed = [.. new byte[] { (byte)(junk.Length >> 8), (byte)junk.Length }, .. junk];
-        await probe.GetStream().WriteAsync(framed);
-        await probe.GetStream().FlushAsync();
+        byte[] body = Encoding.UTF8.GetBytes($"Hello from origin, path={ctx.Request.Url?.AbsolutePath}");
+        ctx.Response.ContentType = "text/plain";
+        ctx.Response.ContentLength64 = body.Length;
+        await ctx.Response.OutputStream.WriteAsync(body);
+        ctx.Response.Close();
     }
+});
+Console.WriteLine($"origin:  http://127.0.0.1:{originPort}/");
 
-    await serverSide;
+// 2. Ключи Noise + самоподписанный TLS-сертификат сервера.
+KeyPair serverStatic = X25519.GenerateKeyPair();
+KeyPair clientStatic = X25519.GenerateKeyPair();
+using var certificate = TlsCarrier.CreateSelfSignedCertificate(sni);
+
+// 3. Сервер с TLS-несущей.
+await using var server = ChameleonServer.Start(
+    new IPEndPoint(IPAddress.Loopback, 0), serverStatic, TlsCarrier.Server(certificate));
+Console.WriteLine($"server:  {server.EndPoint} (TLS)");
+
+// 4. Клиент с TLS-несущей; печатаем согласованные параметры TLS.
+CarrierWrapper clientCarrier = TlsCarrier.Client(sni, onHandshake: tls =>
+    Console.WriteLine(
+        $"   TLS:  {tls.SslProtocol}, ALPN={tls.NegotiatedApplicationProtocol}, {tls.NegotiatedCipherSuite}"));
+
+await using var client = await ChameleonClient.StartAsync(
+    server.EndPoint, clientStatic, serverStatic.Public,
+    new IPEndPoint(IPAddress.Loopback, 0), carrier: clientCarrier, cancellationToken: cts.Token);
+Console.WriteLine($"socks5:  {client.SocksEndPoint}\n");
+
+// 5. Реальные HTTP-запросы через SOCKS5 (две штуки - мультиплексирование).
+var handler = new SocketsHttpHandler
+{
+    Proxy = new WebProxy($"socks5://127.0.0.1:{client.SocksEndPoint.Port}"),
+    UseProxy = true,
+};
+using var http = new HttpClient(handler);
+
+Console.WriteLine("→ GET /hello через TLS-туннель…");
+string r1 = await http.GetStringAsync($"http://127.0.0.1:{originPort}/hello", cts.Token);
+Console.WriteLine($"← «{r1}»");
+string r2 = await http.GetStringAsync($"http://127.0.0.1:{originPort}/second", cts.Token);
+Console.WriteLine($"← «{r2}»");
+
+Console.WriteLine(r1.Contains("Hello from origin") && r2.Contains("second")
+    ? "\nИТОГ: прокси работает поверх TLS, потоки мультиплексируются."
+    : "\nИТОГ: что-то не так.");
+
+// 6. Активный зонд: TLS есть, но ключа Noise нет - должен увидеть «просто сайт».
+Console.WriteLine("\n--- активный зонд (TLS без ключа Noise) ---");
+try
+{
+    using var probe = new HttpClient(new SocketsHttpHandler
+    {
+        SslOptions = new SslClientAuthenticationOptions
+        {
+            TargetHost = sni,
+            RemoteCertificateValidationCallback = (_, _, _, _) => true,
+        },
+    });
+    string coverPage = await probe.GetStringAsync($"https://127.0.0.1:{server.EndPoint.Port}/", cts.Token);
+    Console.WriteLine(coverPage.Contains("It works")
+        ? "зонд увидел обычную веб-страницу прикрытия (не распознал прокси)"
+        : $"зонд получил: {coverPage[..Math.Min(60, coverPage.Length)]}");
+}
+catch (Exception e)
+{
+    Console.WriteLine($"зонд: {e.GetType().Name}");
+}
+
+origin.Stop();
+
+static int FreePort()
+{
+    var l = new TcpListener(IPAddress.Loopback, 0);
+    l.Start();
+    int port = ((IPEndPoint)l.LocalEndpoint).Port;
     l.Stop();
-}
-
-static byte[] BuildRequestPacket()
-{
-    byte[] buffer = new byte[512];
-    var writer = new PacketWriter(buffer, packetNumber: 0);
-    writer.WriteStreamOpen(streamId: 1, StreamKind.Tcp, "example.com", 443);
-    writer.WriteStream(streamId: 1, offset: 0, "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"u8);
-    writer.PadTo(512);
-    return buffer[..writer.Length];
-}
-
-static byte[] BuildAckPacket(ulong acked)
-{
-    byte[] buffer = new byte[64];
-    var writer = new PacketWriter(buffer, packetNumber: 0);
-    writer.WriteAck(largestAcked: acked, ackDelayMs: 0, firstRange: 0, ranges: []);
-    return buffer[..writer.Length];
+    return port;
 }
