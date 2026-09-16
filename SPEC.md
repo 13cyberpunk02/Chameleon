@@ -187,7 +187,7 @@ ClientHello формирует `System.Net.Security.SslStream` (SChannel/OpenSSL
 фильтровать по несовпадению отпечатка, это слабое место.
 
 Решение - TLS-стек BouncyCastle, где мы задаём ClientHello сами (проект
-`Chameleon.Tls.BouncyCastle`, `BcTlsCarrier.Client`). BC-клиент совместим с
+`Chameleon.Tls`, `BcTlsCarrier.Client`). BC-клиент совместим с
 обычным SslStream-сервером, поэтому серверную сторону менять не нужно. Отпечаток
 можно измерять утилитами `Ja3`/`Ja4`. По JA4 (сортирует расширения, игнорирует
 GREASE - ровно то, чем BC не управляет) достигнут профиль Chrome:
