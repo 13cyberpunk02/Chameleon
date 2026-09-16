@@ -7,9 +7,8 @@ using Chameleon.Core.Transport;
 namespace Chameleon.Core.Proxy;
 
 /// <summary>
-/// Клиент: держит одну сессию к серверу и принимает локальные SOCKS5-подключения,
-/// каждое из которых становится отдельным потоком внутри этой сессии.
-/// Несущую задаёт <see cref="CarrierWrapper"/>: голый TCP или TLS.
+/// Клиент: держит одну сессию к серверу (возможно, по НЕСКОЛЬКИМ несущим) и
+/// принимает локальные SOCKS5-подключения как потоки этой сессии.
 /// </summary>
 public sealed class ChameleonClient : IAsyncDisposable
 {
@@ -25,31 +24,78 @@ public sealed class ChameleonClient : IAsyncDisposable
     }
 
     public IPEndPoint SocksEndPoint => (IPEndPoint)_socksListener.LocalEndpoint;
+    public int CarrierCount => _session.CarrierCount;
 
     public static async Task<ChameleonClient> StartAsync(
         IPEndPoint serverEndPoint, KeyPair clientStatic, byte[] serverStaticPublic,
         IPEndPoint socksEndPoint, uint carrierId = 1, CarrierWrapper? carrier = null,
-        TrafficShaper? shaper = null, CancellationToken cancellationToken = default)
+        TrafficShaper? shaper = null,
+        IReadOnlyList<IPEndPoint>? extraCarrierEndpoints = null,
+        CancellationToken cancellationToken = default)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         await socket.ConnectAsync(serverEndPoint, cancellationToken).ConfigureAwait(false);
-
         Stream stream = carrier is null
             ? new NetworkStream(socket, ownsSocket: true)
             : await carrier(socket, cancellationToken).ConfigureAwait(false);
 
-        RecordChannel channel = await ChameleonHandshake.ConnectAsync(
-            stream, clientStatic, serverStaticPublic, carrierId, cancellationToken).ConfigureAwait(false);
-
+        (RecordChannel channel, byte[] secret) = await ChameleonHandshake
+            .ConnectAsync(stream, clientStatic, serverStaticPublic, carrierId, cancellationToken).ConfigureAwait(false);
         var session = ChameleonSession.Start(channel, isClient: true, shaper);
+
+        // Дополнительные несущие: присоединяем к той же сессии по join.
+        if (extraCarrierEndpoints is not null)
+        {
+            uint nextCarrierId = carrierId + 1;
+            foreach (var endpoint in extraCarrierEndpoints)
+            {
+                try
+                {
+                    await JoinCarrierAsync(session, endpoint, secret, nextCarrierId, carrier, cancellationToken)
+                        .ConfigureAwait(false);
+                    nextCarrierId++;
+                }
+                catch (Exception)
+                {
+                    /* дополнительная несущая необязательна */
+                }
+            }
+        }
 
         var listener = new TcpListener(socksEndPoint);
         listener.Start();
-
         var client = new ChameleonClient(session, listener);
         client._acceptLoop = Task.Run(() => client.AcceptLoopAsync(client._cts.Token));
         return client;
     }
+
+    private static async Task JoinCarrierAsync(
+        ChameleonSession session, IPEndPoint endpoint, byte[] secret, uint carrierId,
+        CarrierWrapper? carrier, CancellationToken cancellationToken)
+    {
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+        Stream stream = carrier is null
+            ? new NetworkStream(socket, ownsSocket: true)
+            : await carrier(socket, cancellationToken).ConfigureAwait(false);
+
+        byte[] join = CarrierJoin.BuildJoin(secret, carrierId);
+        await Framing.WriteFrameAsync(stream, join, cancellationToken).ConfigureAwait(false);
+
+        byte[] prefix = new byte[2];
+        int len = await Framing.ReadPrefixAsync(stream, prefix, cancellationToken).ConfigureAwait(false);
+        byte[] ack = await Framing.ReadExactCountAsync(stream, len, cancellationToken).ConfigureAwait(false);
+        if (!CarrierJoin.VerifyAck(secret, GetNonce(join), ack))
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+            throw new ChameleonProtocolException("Сервер не подтвердил присоединение несущей");
+        }
+
+        var keys = KeySchedule.ForCarrier(secret, carrierId, isClient: true);
+        session.AddCarrier(new RecordChannel(stream, keys));
+    }
+
+    private static byte[] GetNonce(byte[] join) => join.AsSpan(16 + 4, 16).ToArray();
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
     {
@@ -79,10 +125,8 @@ public sealed class ChameleonClient : IAsyncDisposable
         {
             var stream = new NetworkStream(socket, ownsSocket: false);
             Socks5.Target target = await Socks5.HandshakeAsync(stream, cancellationToken).ConfigureAwait(false);
-
             ChameleonStream logical = await _session
                 .OpenStreamAsync(target.Host, target.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
-
             await Relay.RunAsync(socket, logical, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)

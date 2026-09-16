@@ -194,7 +194,7 @@ internal static class ManagedChaCha20Poly1305
         BinaryPrimitives.WriteUInt64LittleEndian(macData.AsSpan(offset, 8), (ulong)aad.Length);
         BinaryPrimitives.WriteUInt64LittleEndian(macData.AsSpan(offset + 8, 8), (ulong)ciphertext.Length);
 
-        // Длина mac_data всегда кратна 16, поэтому каждый блок полный → добавляем 2^128.
+        // Длина mac_data всегда кратна 16, поэтому каждый блок полный -> добавляем 2^128.
         BigInteger acc = 0;
         Span<byte> block = stackalloc byte[17];
         for (int i = 0; i < total; i += 16)

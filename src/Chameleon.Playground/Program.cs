@@ -1,74 +1,39 @@
-﻿using System.Security.Cryptography;
-using Chameleon.Core.Fec;
+﻿using Chameleon.Playground.Examples;
 
-Console.WriteLine("=== стресс-тест Reed-Solomon (1000 прогонов) ===");
-var rng = new Random(7);
-int fails = 0;
-for (int trial = 0; trial < 1000; trial++)
+var examples = new (string Name, string Description, Func<Task> Run)[]
 {
-    int k = rng.Next(2, 12), m = rng.Next(1, 6), size = rng.Next(16, 1024);
-    var rs = new ReedSolomon(k, m);
+    ("handshake", "Рукопожатие Noise IK + record-слой + проверка на зонд", HandshakeExample.RunAsync),
+    ("socks5", "Сквозной SOCKS5-прокси поверх голого TCP", Socks5ProxyExample.RunAsync),
+    ("tls", "Прокси поверх TLS + декой-прокси (зонд видит настоящий сайт)", TlsProxyExample.RunAsync),
+    ("ja4", "Отпечаток ClientHello: JA3/JA4 против эталона Chromium", Ja4Example.RunAsync),
+    ("shaper", "Шейпер: стохастический автомат поведения + смена модели", ShaperExample.RunAsync),
+    ("models", "Модели поведения: обучение из сэмплов, JSON, загрузка", TrafficModelExample.RunAsync),
+    ("policing", "Детектор полисинга vs перегрузки", PolicingExample.RunAsync),
+    ("multipath", "Мультипуть: две несущие, убийство одной посреди передачи", MultipathExample.RunAsync),
+    ("join", "Присоединение несущих по сети: три несущие в одной сессии", CarrierJoinExample.RunAsync),
+    ("fec", "FEC: Reed-Solomon, восстановление потерь без ретрансмита", FecExample.RunAsync),
+};
 
-    var data = new byte[k][];
-    for (int i = 0; i < k; i++)
+string? pick = args.Length > 0 ? args[0].ToLowerInvariant() : null;
+var chosen = examples.FirstOrDefault(e => e.Name == pick);
+
+if (chosen.Run is null)
+{
+    Console.WriteLine("Примеры использования Chameleon. Запуск:\n");
+    Console.WriteLine("  dotnet run --project src/Chameleon.Playground -- <имя>\n");
+    foreach (var e in examples)
+        Console.WriteLine($"  {e.Name,-10} - {e.Description}");
+    Console.WriteLine("\n  all        - прогнать все по очереди");
+    if (pick == "all")
     {
-        data[i] = new byte[size];
-        rng.NextBytes(data[i]);
-    }
-
-    var parity = rs.Encode(data);
-
-    var shards = new byte[k + m][];
-    for (int i = 0; i < k; i++) shards[i] = (byte[])data[i].Clone();
-    for (int i = 0; i < m; i++) shards[k + i] = (byte[])parity[i].Clone();
-
-    // стираем ровно m случайных шардов (максимум, что RS может восстановить)
-    var present = Enumerable.Repeat(true, k + m).ToArray();
-    var idx = Enumerable.Range(0, k + m).OrderBy(_ => rng.Next()).Take(m).ToArray();
-    foreach (int e in idx)
-    {
-        present[e] = false;
-        shards[e] = new byte[size];
-    }
-
-    rs.DecodeMissingData(shards, present);
-    for (int i = 0; i < k; i++)
-        if (!shards[i].AsSpan().SequenceEqual(data[i]))
+        foreach (var e in examples)
         {
-            fails++;
-            break;
+            Console.WriteLine($"\n\n########## {e.Name} ##########");
+            await e.Run();
         }
+    }
+
+    return;
 }
 
-Console.WriteLine(fails == 0 ? "  все 1000 прогонов восстановлены точно ✓" : $"  провалов: {fails} ✗");
-
-// 2) Блочный FEC на пакетах переменной длины: теряем m несущих из k+m.
-Console.WriteLine("\n=== блочный FEC: пакеты переменной длины, потеря 2 «несущих» ===");
-var fec = new FecBlock(dataShards: 6, parityShards: 2); // переживаем потерю любых 2 из 8
-var packets = new byte[6][];
-for (int i = 0; i < 6; i++)
-{
-    packets[i] = new byte[rng.Next(20, 400)];
-    rng.NextBytes(packets[i]);
-}
-
-string[] hashes = packets.Select(p => Convert.ToHexString(SHA256.HashData(p))).ToArray();
-
-byte[][] blockShards = fec.Encode(packets);
-var pres = Enumerable.Repeat(true, fec.TotalShards).ToArray();
-int size2 = blockShards[0].Length;
-foreach (int e in new[] { 1, 5 })
-{
-    pres[e] = false;
-    blockShards[e] = new byte[size2];
-} // «умерли» шарды 1 и 5
-
-Console.WriteLine("  стёрты шарды 1 и 5, восстанавливаем блок…");
-
-byte[][] recovered = fec.Decode(blockShards, pres);
-bool allOk = recovered.Select((p, i) => Convert.ToHexString(SHA256.HashData(p)) == hashes[i]).All(x => x);
-Console.WriteLine(allOk ? "  все 6 пакетов восстановлены точно (без ретрансмита) ✓" : "  восстановление не удалось ✗");
-
-Console.WriteLine(fails == 0 && allOk
-    ? "\nИТОГ: FEC работает - потери до m шардов восстанавливаются без ретрансмитов."
-    : "\nИТОГ: есть проблемы.");
+await chosen.Run();

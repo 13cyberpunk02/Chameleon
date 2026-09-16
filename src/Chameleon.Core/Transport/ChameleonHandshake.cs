@@ -4,65 +4,62 @@ using Chameleon.Core.Crypto;
 namespace Chameleon.Core.Transport;
 
 /// <summary>
-/// Итог попытки принять входящую несущую: либо аутентифицированный клиент
-/// (<see cref="Channel"/> задан), либо чужак/зонд - тогда <see cref="Buffered"/>
-/// содержит байты, уже прочитанные из потока, чтобы их можно было переиграть
-/// декой-прокси (иначе реальный сайт получил бы обрезанный запрос).
+/// Итог попытки принять входящую несущую как НОВУЮ сессию (полное рукопожатие
+/// Noise). Либо аутентифицированный клиент (<see cref="Channel"/> задан) с
+/// секретом сессии, либо чужак/зонд - тогда <see cref="Buffered"/> содержит уже
+/// прочитанные байты для переигрывания декой-прокси.
 /// </summary>
 public sealed class AcceptOutcome
 {
-    private AcceptOutcome(RecordChannel? channel, byte[]? clientStaticPublic, byte[] buffered)
+    private AcceptOutcome(RecordChannel? channel, byte[]? clientStaticPublic, byte[]? sessionSecret, byte[] buffered)
     {
         Channel = channel;
         ClientStaticPublic = clientStaticPublic;
+        SessionSecret = sessionSecret;
         Buffered = buffered;
     }
 
     public RecordChannel? Channel { get; }
     public byte[]? ClientStaticPublic { get; }
+    public byte[]? SessionSecret { get; }
     public byte[] Buffered { get; }
     public bool Succeeded => Channel is not null;
 
-    internal static AcceptOutcome Success(RecordChannel channel, byte[] clientStaticPublic)
-        => new(channel, clientStaticPublic, []);
+    internal static AcceptOutcome Success(RecordChannel channel, byte[] clientStaticPublic, byte[] sessionSecret)
+        => new(channel, clientStaticPublic, sessionSecret, []);
 
-    internal static AcceptOutcome Cover(byte[] buffered)
-        => new(null, null, buffered);
+    internal static AcceptOutcome Cover(byte[] buffered) => new(null, null, null, buffered);
 }
 
-/// <summary>
-/// Проводит рукопожатие Noise IK поверх Stream (внутри TLS-несущей) и отдаёт
-/// готовый <see cref="RecordChannel"/>. Сообщения идут с 2-байтным префиксом длины.
-/// </summary>
+/// <summary>Рукопожатие Noise IK поверх Stream (внутри TLS-несущей).</summary>
 public static class ChameleonHandshake
 {
-    public static async Task<RecordChannel> ConnectAsync(
+    /// <returns>Канал несущей и секрет сессии (нужен для присоединения других несущих).</returns>
+    public static async Task<(RecordChannel Channel, byte[] SessionSecret)> ConnectAsync(
         Stream stream, KeyPair clientStatic, byte[] serverStaticPublic, uint carrierId,
         CancellationToken cancellationToken = default)
     {
         var handshake = NoiseIkHandshake.CreateInitiator(clientStatic, serverStaticPublic);
 
-        await WriteFrameAsync(stream, handshake.WriteMessage1(), cancellationToken).ConfigureAwait(false);
-        byte[] message2 = await ReadFrameAsync(stream, cancellationToken).ConfigureAwait(false);
+        await Framing.WriteFrameAsync(stream, handshake.WriteMessage1(), cancellationToken).ConfigureAwait(false);
+        byte[] prefix = new byte[2];
+        int len = await Framing.ReadPrefixAsync(stream, prefix, cancellationToken).ConfigureAwait(false);
+        byte[] message2 = await Framing.ReadExactCountAsync(stream, len, cancellationToken).ConfigureAwait(false);
         HandshakeResult result = handshake.ReadMessage2(message2);
 
         var keys = KeySchedule.ForCarrier(result.SessionSecret, carrierId, isClient: true);
-        return new RecordChannel(stream, keys);
+        return (new RecordChannel(stream, keys), result.SessionSecret);
     }
 
     /// <summary>
-    /// Пытается принять клиента. Байты читаются с буферизацией: если это не наш
-    /// клиент, всё прочитанное возвращается в <see cref="AcceptOutcome.Buffered"/>
-    /// для передачи декой-прокси. Мы отвечаем (msg2) только после того, как msg1
-    /// успешно аутентифицирован - зонд ответа не увидит.
+    /// Принимает входящую несущую как новую сессию. Байты буферизуются: если это
+    /// не наш клиент, всё прочитанное уходит в Buffered для декой-прокси.
     /// </summary>
     public static async Task<AcceptOutcome> TryAcceptAsync(
-        Stream stream, KeyPair serverStatic, uint carrierId,
-        CancellationToken cancellationToken = default)
+        Stream stream, KeyPair serverStatic, uint carrierId, CancellationToken cancellationToken = default)
     {
         var buffered = new List<byte>(NoiseIkHandshake.Message1Length + 2);
 
-        // Префикс длины. У настоящего клиента он равен длине msg1; иначе это чужак.
         byte[] prefix = new byte[2];
         if (!await ReadRecordingAsync(stream, prefix, buffered, cancellationToken).ConfigureAwait(false))
             return AcceptOutcome.Cover(buffered.ToArray());
@@ -76,56 +73,22 @@ public static class ChameleonHandshake
             return AcceptOutcome.Cover(buffered.ToArray());
 
         var handshake = NoiseIkHandshake.CreateResponder(serverStatic);
-        HandshakeResult result;
         try
         {
             handshake.ReadMessage1(message1);
         }
         catch (ChameleonProtocolException)
         {
-            return AcceptOutcome.Cover([.. buffered]);
+            return AcceptOutcome.Cover(buffered.ToArray());
         }
 
-        // msg1 подлинный - отвечаем и поднимаем канал.
-        result = handshake.WriteMessage2(out byte[] message2);
-        await WriteFrameAsync(stream, message2, cancellationToken).ConfigureAwait(false);
+        HandshakeResult result = handshake.WriteMessage2(out byte[] message2);
+        await Framing.WriteFrameAsync(stream, message2, cancellationToken).ConfigureAwait(false);
 
         var keys = KeySchedule.ForCarrier(result.SessionSecret, carrierId, isClient: false);
-        return AcceptOutcome.Success(new RecordChannel(stream, keys), result.RemoteStaticPublic);
+        return AcceptOutcome.Success(new RecordChannel(stream, keys), result.RemoteStaticPublic, result.SessionSecret);
     }
 
-    private static async Task WriteFrameAsync(Stream stream, byte[] message, CancellationToken cancellationToken)
-    {
-        byte[] header = new byte[2];
-        BinaryPrimitives.WriteUInt16BigEndian(header, (ushort)message.Length);
-        await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);
-        await stream.WriteAsync(message, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<byte[]> ReadFrameAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        byte[] header = new byte[2];
-        await ReadExactAsync(stream, header, cancellationToken).ConfigureAwait(false);
-        int length = BinaryPrimitives.ReadUInt16BigEndian(header);
-
-        byte[] message = new byte[length];
-        await ReadExactAsync(stream, message, cancellationToken).ConfigureAwait(false);
-        return message;
-    }
-
-    private static async Task ReadExactAsync(Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
-    {
-        int read = 0;
-        while (read < buffer.Length)
-        {
-            int n = await stream.ReadAsync(buffer[read..], cancellationToken).ConfigureAwait(false);
-            if (n == 0) throw new ChameleonProtocolException("Соединение закрыто во время рукопожатия");
-            read += n;
-        }
-    }
-
-    /// <summary>Читает ровно buffer.Length байт, дописывая их в recorder. false - если поток кончился.</summary>
     private static async Task<bool> ReadRecordingAsync(
         Stream stream, byte[] buffer, List<byte> recorder, CancellationToken cancellationToken)
     {

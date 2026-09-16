@@ -4,7 +4,7 @@ using System.Text;
 namespace Chameleon.Tls;
 
 /// <summary>
-/// Вычисляет JA3 из сырых байт ClientHello (TLS record → handshake).
+/// Вычисляет JA3 из сырых байт ClientHello (TLS record -> handshake).
 /// JA3 = md5("Version,Ciphers,Extensions,Groups,PointFormats"), значения GREASE
 /// исключаются. Нужен для проверки и подгонки отпечатка под браузер.
 /// </summary>
@@ -52,8 +52,8 @@ public static class Ja3
             }
         }
 
-        string join(IEnumerable<int> xs) => string.Join("-", xs.Where(v => !IsGrease(v)));
-        string ja3 = $"{legacyVersion},{join(ciphers)},{join(extensions)},{join(groups)},{join(pointFormats)}";
+        string Join(IEnumerable<int> xs) => string.Join("-", xs.Where(v => !IsGrease(v)));
+        string ja3 = $"{legacyVersion},{Join(ciphers)},{Join(extensions)},{Join(groups)},{Join(pointFormats)}";
 
         byte[] hash = MD5.HashData(Encoding.ASCII.GetBytes(ja3));
         return (ja3, Convert.ToHexString(hash).ToLowerInvariant());

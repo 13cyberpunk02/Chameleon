@@ -9,6 +9,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Chameleon.Core\Chameleon.Core.csproj" />
+      <ProjectReference Include="..\Chameleon.Tls\Chameleon.Tls.csproj" />
     </ItemGroup>
 
 </Project>

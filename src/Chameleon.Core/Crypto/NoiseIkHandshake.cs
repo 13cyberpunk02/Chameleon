@@ -9,8 +9,8 @@ public sealed record HandshakeResult(byte[] SessionSecret, byte[] RemoteStaticPu
 /// Рукопожатие Noise_IK_25519_ChaChaPoly_SHA256.
 ///
 ///   pre-message: responder static (клиент знает публичный ключ сервера заранее)
-///   msg1 (client → server): e, es, s, ss
-///   msg2 (server → client): e, ee, se
+///   msg1 (client -> server): e, es, s, ss
+///   msg2 (server -> client): e, ee, se
 ///
 /// Что это даёт:
 ///  1 клиент аутентифицирует сервер по заранее известному ключу - активный зонд
