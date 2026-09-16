@@ -1,174 +1,74 @@
-﻿using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
-using Chameleon.Core.Crypto;
-using Chameleon.Core.Proxy;
-using Chameleon.Core.Session;
-using Chameleon.Core.Transport;
+﻿using System.Security.Cryptography;
+using Chameleon.Core.Fec;
 
-// Ревизия 3-2: стохастический шейпер-автомат.
-// (1) тайминги прикрытия рандомизированы и зависят от режима (нет «метронома»);
-// (2) режимы переключаются вероятностно; (3) модель можно сменить на лету;
-// (4) реальные данные по-прежнему квантуются, прокси работает.
-
-Console.WriteLine("=== (1-2) выборка автомата WebBrowsing: паузы, размеры, режимы ===");
-var shaper = TrafficShaper.WebBrowsing;
-var delays = new List<int>();
-var coverSizes = new HashSet<int>();
-var regimes = new List<string>();
-var sw = Stopwatch.StartNew();
-
-while (sw.Elapsed < TimeSpan.FromSeconds(12) && regimes.Distinct().Count() < 2)
+Console.WriteLine("=== стресс-тест Reed-Solomon (1000 прогонов) ===");
+var rng = new Random(7);
+int fails = 0;
+for (int trial = 0; trial < 1000; trial++)
 {
-    var (delay, size) = shaper.NextCover();
-    delays.Add((int)delay.TotalMilliseconds);
-    coverSizes.Add(size);
-    string regime = shaper.CurrentRegimeName;
-    if (regimes.Count == 0 || regimes[^1] != regime) regimes.Add(regime);
-    await Task.Delay(delay);
-}
+    int k = rng.Next(2, 12), m = rng.Next(1, 6), size = rng.Next(16, 1024);
+    var rs = new ReedSolomon(k, m);
 
-sw.Stop();
-Console.WriteLine(
-    $"паузы, мс: min={delays.Min()} max={delays.Max()} уникальных={delays.Distinct().Count()} (значит не метроном)");
-Console.WriteLine($"размеры прикрытия: [{string.Join(", ", coverSizes.OrderBy(x => x))}] (все со ступеней лесенки)");
-Console.WriteLine($"последовательность режимов за {sw.Elapsed.TotalSeconds:0.0} с: {string.Join(" → ", regimes)}");
-
-Console.WriteLine("\n=== (3) смена модели на лету: WebBrowsing → Streaming ===");
-Console.WriteLine($"до:    модель={shaper.CurrentModelName}");
-shaper.SwitchModel(TrafficModel.Streaming);
-var streamingSizes = new HashSet<int>();
-for (int i = 0; i < 30; i++)
-{
-    streamingSizes.Add(shaper.NextCover().Size);
-    await Task.Delay(10);
-}
-
-Console.WriteLine(
-    $"после: модель={shaper.CurrentModelName}, размеры прикрытия=[{string.Join(", ", streamingSizes.OrderBy(x => x))}] (крупнее - это видео)");
-
-Console.WriteLine("\n=== (4) прокси с шейпером всё ещё работает, данные квантуются ===");
-await ProxyStillWorks();
-
-static async Task ProxyStillWorks()
-{
-    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-    int originPort = StartHttp(new string('X', 3000));
-    var sizes = new ConcurrentQueue<int>();
-
-    KeyPair serverStatic = X25519.GenerateKeyPair();
-    KeyPair clientStatic = X25519.GenerateKeyPair();
-
-    var model = TrafficShaper.WebBrowsing;
-    await using var server = ChameleonServer.Start(new IPEndPoint(IPAddress.Loopback, 0), serverStatic,
-        shaper: TrafficShaper.WebBrowsing);
-    CarrierWrapper counting = (socket, ct) =>
-        Task.FromResult<Stream>(new CountingStream(new NetworkStream(socket, ownsSocket: true), sizes));
-
-    await using var client = await ChameleonClient.StartAsync(
-        server.EndPoint, clientStatic, serverStatic.Public,
-        new IPEndPoint(IPAddress.Loopback, 0), carrier: counting, shaper: model, cancellationToken: cts.Token);
-    sizes.Clear();
-
-    using var http = new HttpClient(new SocketsHttpHandler
+    var data = new byte[k][];
+    for (int i = 0; i < k; i++)
     {
-        Proxy = new WebProxy($"socks5://127.0.0.1:{client.SocksEndPoint.Port}"),
-        UseProxy = true,
-    });
-    string body = await http.GetStringAsync($"http://127.0.0.1:{originPort}/", cts.Token);
+        data[i] = new byte[size];
+        rng.NextBytes(data[i]);
+    }
 
-    var ladder = new[] { 128, 512, 1536, 4096, RecordFormat.MaxPlaintext };
-    bool allQuantized = sizes.All(s => ladder.Contains(s - RecordFormat.Overhead));
-    Console.WriteLine(
-        $"прокси отдал {body.Length} байт; размеры на проводе на ступенях лесенки: {(allQuantized ? "✓ да" : "✗ нет")}");
-}
+    var parity = rs.Encode(data);
 
-static int StartHttp(string message)
-{
-    int port = FreePort();
-    var listener = new HttpListener();
-    listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-    listener.Start();
-    _ = Task.Run(async () =>
+    var shards = new byte[k + m][];
+    for (int i = 0; i < k; i++) shards[i] = (byte[])data[i].Clone();
+    for (int i = 0; i < m; i++) shards[k + i] = (byte[])parity[i].Clone();
+
+    // стираем ровно m случайных шардов (максимум, что RS может восстановить)
+    var present = Enumerable.Repeat(true, k + m).ToArray();
+    var idx = Enumerable.Range(0, k + m).OrderBy(_ => rng.Next()).Take(m).ToArray();
+    foreach (int e in idx)
     {
-        while (listener.IsListening)
+        present[e] = false;
+        shards[e] = new byte[size];
+    }
+
+    rs.DecodeMissingData(shards, present);
+    for (int i = 0; i < k; i++)
+        if (!shards[i].AsSpan().SequenceEqual(data[i]))
         {
-            HttpListenerContext ctx;
-            try
-            {
-                ctx = await listener.GetContextAsync();
-            }
-            catch
-            {
-                break;
-            }
-
-            byte[] b = Encoding.UTF8.GetBytes(message);
-            ctx.Response.ContentLength64 = b.Length;
-            try
-            {
-                await ctx.Response.OutputStream.WriteAsync(b);
-                ctx.Response.Close();
-            }
-            catch
-            {
-                // ignored
-            }
+            fails++;
+            break;
         }
-    });
-    return port;
 }
 
-static int FreePort()
+Console.WriteLine(fails == 0 ? "  все 1000 прогонов восстановлены точно ✓" : $"  провалов: {fails} ✗");
+
+// 2) Блочный FEC на пакетах переменной длины: теряем m несущих из k+m.
+Console.WriteLine("\n=== блочный FEC: пакеты переменной длины, потеря 2 «несущих» ===");
+var fec = new FecBlock(dataShards: 6, parityShards: 2); // переживаем потерю любых 2 из 8
+var packets = new byte[6][];
+for (int i = 0; i < 6; i++)
 {
-    var l = new TcpListener(IPAddress.Loopback, 0);
-    l.Start();
-    int port = ((IPEndPoint)l.LocalEndpoint).Port;
-    l.Stop();
-    return port;
+    packets[i] = new byte[rng.Next(20, 400)];
+    rng.NextBytes(packets[i]);
 }
 
-sealed class CountingStream(Stream inner, ConcurrentQueue<int> sizes) : Stream
+string[] hashes = packets.Select(p => Convert.ToHexString(SHA256.HashData(p))).ToArray();
+
+byte[][] blockShards = fec.Encode(packets);
+var pres = Enumerable.Repeat(true, fec.TotalShards).ToArray();
+int size2 = blockShards[0].Length;
+foreach (int e in new[] { 1, 5 })
 {
-    public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer,
-        CancellationToken cancellationToken = default)
-    {
-        sizes.Enqueue(buffer.Length);
-        await inner.WriteAsync(buffer, cancellationToken);
-    }
+    pres[e] = false;
+    blockShards[e] = new byte[size2];
+} // «умерли» шарды 1 и 5
 
-    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        => inner.ReadAsync(buffer, cancellationToken);
+Console.WriteLine("  стёрты шарды 1 и 5, восстанавливаем блок…");
 
-    public override Task FlushAsync(CancellationToken cancellationToken) => inner.FlushAsync(cancellationToken);
+byte[][] recovered = fec.Decode(blockShards, pres);
+bool allOk = recovered.Select((p, i) => Convert.ToHexString(SHA256.HashData(p)) == hashes[i]).All(x => x);
+Console.WriteLine(allOk ? "  все 6 пакетов восстановлены точно (без ретрансмита) ✓" : "  восстановление не удалось ✗");
 
-    public override async ValueTask DisposeAsync()
-    {
-        await inner.DisposeAsync();
-        await base.DisposeAsync();
-    }
-
-    public override void Flush() => inner.Flush();
-    public override int Read(byte[] b, int o, int c) => inner.Read(b, o, c);
-
-    public override void Write(byte[] b, int o, int c)
-    {
-        sizes.Enqueue(c);
-        inner.Write(b, o, c);
-    }
-
-    public override long Seek(long o, SeekOrigin s) => throw new NotSupportedException();
-    public override void SetLength(long v) => throw new NotSupportedException();
-    public override bool CanRead => true;
-    public override bool CanSeek => false;
-    public override bool CanWrite => true;
-    public override long Length => throw new NotSupportedException();
-
-    public override long Position
-    {
-        get => throw new NotSupportedException();
-        set => throw new NotSupportedException();
-    }
-}
+Console.WriteLine(fails == 0 && allOk
+    ? "\nИТОГ: FEC работает - потери до m шардов восстанавливаются без ретрансмитов."
+    : "\nИТОГ: есть проблемы.");

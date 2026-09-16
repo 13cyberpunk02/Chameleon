@@ -1,15 +1,11 @@
 ﻿# Chameleon.Tls
 
-TLS-несущая на BouncyCastle с браузерным ClientHello. Нужна, потому что
-System.Net.Security.SslStream не даёт управлять составом и порядком расширений
-ClientHello - и по отпечатку JA3/JA4 палится как «не браузер».
-
-Здесь ClientHello формирует BouncyCastle, состав которого мы задаём сами
-(cipher suites, группы, ALPN, версии). Клиент BC совместим с обычным
-SslStream-сервером, поэтому серверную сторону менять не нужно.
+TLS-несущая на BouncyCastle с ClientHello под профиль Chrome. Нужна, потому что
+System.Net.Security.SslStream не даёт управлять составом ClientHello - и по
+отпечатку палится как «не браузер».
 
 ## Зависимость
-NuGet-пакет `BouncyCastle.Cryptography` (>= 2.7.0). Уже прописан в csproj.
+NuGet-пакет `BouncyCastle.Cryptography` (>= 2.7.0). Прописан в csproj.
 
 ## Использование (клиент)
 ```csharp
@@ -17,30 +13,46 @@ using Chameleon.Tls;
 
 await using var client = await ChameleonClient.StartAsync(
     serverEndPoint, clientStatic, serverStaticPublic, socksEndPoint,
-    carrier: BcTlsCarrier.Client("www.example-cdn.com"),   // <-- браузерный ClientHello
+    carrier: BcTlsCarrier.Client("www.example-cdn.com"),   // ClientHello под Chrome
     shaper: TrafficShaper.WebBrowsing);
 ```
-Сервер остаётся на `TlsCarrier.Server(cert)` (SslStream) - они совместимы.
+Сервер остаётся на `TlsCarrier.Server(cert)` (SslStream) - совместимы.
 
-## Проверка отпечатка
-`Ja3.FromClientHelloRecord(bytes)` считает JA3 из сырых байт ClientHello.
-Текущий JA3 нашего ClientHello:
+## Отпечаток: результат
+Достигнутый JA4 нашего ClientHello:
 ```
-771,4865-4866-4867-49195-49199-255,22-23-16-0-5-13-10-11-43-51,29-23-24,0
+t13d1516h2_8daaf6152771_f66804d42859
 ```
+- `t13d1516h2` - как у Chrome (TCP, TLS 1.3, SNI есть, 15 шифров, 16 расширений, ALPN h2);
+- `8daaf6152771` - хеш списка шифров; совпадает с Chrome (список из 15 шифров идентичен);
+- третья часть `ja4_c` (хеш расширений+подписей) зависит от точного набора
+  конкретной сборки Chrome и подгоняется отдельно (см. ниже).
 
-## ВАЖНО: это ещё не точный отпечаток Chrome
-BouncyCastle НЕ добавляет значения GREASE и располагает расширения в своём
-порядке, а не в порядке Chrome. Поэтому текущий JA3/JA4 - это «обобщённый
-современный TLS 1.3», отличный от SslStream, но НЕ бит-в-бит Chrome.
+Измерять: `Ja4.FromClientHelloRecord(bytes)` и `Ja3.FromClientHelloRecord(bytes)`.
 
-Чтобы приблизить к конкретному Chrome, надо:
-- добавить GREASE в cipher suites, группы и расширения;
-- выставить точный список и ПОРЯДОК расширений Chrome;
-- подогнать список cipher suites под версию Chrome.
-  Это следующий подэтап (2б-3). JA3 из Ja3.cs позволяет сверять результат.
+## Почему JA4, а не JA3
+BouncyCastle не добавляет GREASE и держит СВОЙ порядок расширений (нулевые
+вперёд). JA3 чувствителен к порядку → под Chrome его не свести. Но **JA4
+сортирует расширения и исключает GREASE** - ровно те две вещи, которыми BC не
+управляет. Поэтому по JA4 (современный отпечаток, по нему и фильтруют) мы можем
+совпасть с Chrome, и уже совпадаем по ja4_a и ja4_b.
 
-## Замечание про поток
-BC TLS-поток синхронный и блокирующий, а базовый Stream сериализует
-async read/write общим семафором. Поэтому BcTlsCarrier оборачивает поток в
-BcDuplexStream - иначе одновременные чтение и запись сессии встают в тупик.
+## Как дотянуть ja4_c до конкретного Chrome
+ja4_c - хеш от (отсортированные расширения без GREASE/SNI/ALPN) + (алгоритмы
+подписи в порядке следования). Чтобы совпасть с целевой сборкой Chrome:
+1. снять JA4 настоящего Chrome нужной версии (например, из ja4db или своим сниффером);
+2. подогнать набор расширений в `GetClientExtensions` и список
+   `signature_algorithms` (переопределить `GetSupportedSignatureAlgorithms`) под него;
+3. сверять результат `Ja4.FromClientHelloRecord`, пока ja4_c не совпадёт.
+   Порядок и GREASE на JA4 не влияют, поэтому это достижимо на стоковом BouncyCastle.
+
+## Предел: JA3 и «сырые» парсеры
+Точный JA3 под Chrome на стоковом BC недостижим (порядок расширений, отсутствие
+GREASE в расширениях/группах/key_share). Если цель - обойти фильтр, смотрящий
+именно на JA3 или на побайтовую структуру ClientHello с GREASE, нужен либо
+патч BouncyCastle, либо внешний uTLS-совместимый слой. По JA4 такого ограничения нет.
+
+## Про поток
+BC TLS-поток синхронный; базовый Stream сериализует async read/write общим
+семафором. BcTlsCarrier оборачивает поток в BcDuplexStream, иначе одновременные
+чтение и запись сессии встают в тупик.
