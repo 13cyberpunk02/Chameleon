@@ -180,4 +180,4 @@ dotnet run --project src/Chameleon.Playground -- all   # все по очере�
 
 ## Лицензия
 
-_Укажите лицензию по своему выбору (например, MIT или Apache-2.0)._
+MIT
