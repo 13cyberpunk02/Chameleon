@@ -1,7 +1,9 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Chameleon.Client/Chameleon.Client.csproj" />
     <Project Path="src/Chameleon.Core/Chameleon.Core.csproj" />
     <Project Path="src/Chameleon.Playground/Chameleon.Playground.csproj" />
+    <Project Path="src/Chameleon.Server/Chameleon.Server.csproj" />
     <Project Path="src/Chameleon.Tls/Chameleon.Tls.csproj" />
   </Folder>
 </Solution>

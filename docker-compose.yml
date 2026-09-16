@@ -1,0 +1,17 @@
+services:
+  chameleon:
+    build: .
+    image: chameleon-server
+    container_name: chameleon
+    restart: unless-stopped
+    ports:
+      - "443:8443"            # снаружи 443 (похоже на обычный HTTPS) → внутрь 8443
+    volumes:
+      - chameleon-data:/data  # постоянный ключ сервера
+    environment:
+      - CHAMELEON_SNI=www.example-cdn.com
+      # - CHAMELEON_DECOY=example.com:443      # необязательно: обратный прокси на реальный сайт
+      # - CHAMELEON_CERT_PFX=/data/cert.pfx    # необязательно: боевой сертификат вместо самоподписанного
+      # - CHAMELEON_CERT_PASS=...
+volumes:
+  chameleon-data:
