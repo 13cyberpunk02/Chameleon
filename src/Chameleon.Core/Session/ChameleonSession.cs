@@ -47,7 +47,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     {
         var session = new ChameleonSession(channel, isClient, shaper ?? TrafficShaper.Off);
         session._receiveLoop = Task.Run(() => session.ReceiveLoopAsync(session._cts.Token));
-        if (session._shaper.Enabled && session._shaper.IdleCoverInterval > TimeSpan.Zero)
+        if (session._shaper.CoverActive)
             session._coverLoop = Task.Run(() => session.CoverLoopAsync(session._cts.Token));
         return session;
     }
@@ -121,7 +121,7 @@ public sealed class ChameleonSession : IAsyncDisposable
             int target = targetSize ?? _shaper.Quantize(length);
             if (target > length)
             {
-                Array.Clear(buffer, length, target - length);
+                Array.Clear(buffer, length, target - length); // PADDING = нулевые байты
                 length = target;
             }
         }
@@ -132,22 +132,21 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     private async Task CoverLoopAsync(CancellationToken cancellationToken)
     {
-        TimeSpan interval = _shaper.IdleCoverInterval;
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
-
-                long idleMs = Environment.TickCount64 - Interlocked.Read(ref _lastSendTicks);
-                if (idleMs < interval.TotalMilliseconds) continue;
+                (TimeSpan delay, int size) = _shaper.NextCover();
+                long mark = Interlocked.Read(ref _lastSendTicks);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                
+                if (Interlocked.Read(ref _lastSendTicks) != mark) continue;
 
                 byte[] buffer = ArrayPool<byte>.Shared.Rent(Crypto.RecordFormat.MaxPlaintext);
                 try
                 {
                     int length = BuildCover(buffer, NextPacketNumber());
-                    await EmitAsync(buffer, length, targetSize: _shaper.RandomCoverSize(), cancellationToken)
-                        .ConfigureAwait(false);
+                    await EmitAsync(buffer, length, targetSize: size, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -176,7 +175,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                 if (n < 0) break;
 
                 frames.Clear();
-                PacketReader.Parse(buffer.AsMemory(0, n), frames); // PADDING-пакеты прикрытия дают 0 фреймов
+                PacketReader.Parse(buffer.AsMemory(0, n), frames);
                 foreach (var frame in frames)
                     await DispatchAsync(frame, cancellationToken).ConfigureAwait(false);
             }
@@ -226,7 +225,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     }
 
     private ulong NextPacketNumber() => (ulong)Interlocked.Increment(ref _nextPacketNumber) - 1;
-    
+
     private static int BuildStreamOpen(Span<byte> buffer, ulong pn, ulong id, StreamKind kind, string host, ushort port)
     {
         var writer = new PacketWriter(buffer, pn);

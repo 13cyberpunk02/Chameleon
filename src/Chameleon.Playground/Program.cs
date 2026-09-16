@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -7,70 +8,84 @@ using Chameleon.Core.Proxy;
 using Chameleon.Core.Session;
 using Chameleon.Core.Transport;
 
-// Проверка шейпера: сравниваем размеры record'ов на проводе БЕЗ и С шейпингом.
-// Несущая - голый TCP с обёрткой-счётчиком (чтобы видеть именно наши record'ы,
-// без повторной нарезки в TLS). Функционально прокси работает в обоих случаях.
+// Ревизия 3-2: стохастический шейпер-автомат.
+// (1) тайминги прикрытия рандомизированы и зависят от режима (нет «метронома»);
+// (2) режимы переключаются вероятностно; (3) модель можно сменить на лету;
+// (4) реальные данные по-прежнему квантуются, прокси работает.
 
-int originPort = StartHttp("origin", new string('X', 3000));
+Console.WriteLine("=== (1-2) выборка автомата WebBrowsing: паузы, размеры, режимы ===");
+var shaper = TrafficShaper.WebBrowsing;
+var delays = new List<int>();
+var coverSizes = new HashSet<int>();
+var regimes = new List<string>();
+var sw = Stopwatch.StartNew();
 
-Console.WriteLine("=== БЕЗ шейпера ===");
-await RunOnce(TrafficShaper.Off, originPort, coverWaitMs: 0);
+while (sw.Elapsed < TimeSpan.FromSeconds(12) && regimes.Distinct().Count() < 2)
+{
+    var (delay, size) = shaper.NextCover();
+    delays.Add((int)delay.TotalMilliseconds);
+    coverSizes.Add(size);
+    string regime = shaper.CurrentRegimeName;
+    if (regimes.Count == 0 || regimes[^1] != regime) regimes.Add(regime);
+    await Task.Delay(delay);
+}
 
-Console.WriteLine("\n=== С шейпером (WebBrowsing) ===");
-await RunOnce(TrafficShaper.WebBrowsing, originPort, coverWaitMs: 700);
+sw.Stop();
+Console.WriteLine(
+    $"паузы, мс: min={delays.Min()} max={delays.Max()} уникальных={delays.Distinct().Count()} (значит не метроном)");
+Console.WriteLine($"размеры прикрытия: [{string.Join(", ", coverSizes.OrderBy(x => x))}] (все со ступеней лесенки)");
+Console.WriteLine($"последовательность режимов за {sw.Elapsed.TotalSeconds:0.0} с: {string.Join(" → ", regimes)}");
 
-static async Task RunOnce(TrafficShaper shaper, int originPort, int coverWaitMs)
+Console.WriteLine("\n=== (3) смена модели на лету: WebBrowsing → Streaming ===");
+Console.WriteLine($"до:    модель={shaper.CurrentModelName}");
+shaper.SwitchModel(TrafficModel.Streaming);
+var streamingSizes = new HashSet<int>();
+for (int i = 0; i < 30; i++)
+{
+    streamingSizes.Add(shaper.NextCover().Size);
+    await Task.Delay(10);
+}
+
+Console.WriteLine(
+    $"после: модель={shaper.CurrentModelName}, размеры прикрытия=[{string.Join(", ", streamingSizes.OrderBy(x => x))}] (крупнее - это видео)");
+
+Console.WriteLine("\n=== (4) прокси с шейпером всё ещё работает, данные квантуются ===");
+await ProxyStillWorks();
+
+static async Task ProxyStillWorks()
 {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+    int originPort = StartHttp(new string('X', 3000));
     var sizes = new ConcurrentQueue<int>();
 
     KeyPair serverStatic = X25519.GenerateKeyPair();
     KeyPair clientStatic = X25519.GenerateKeyPair();
 
-    await using var server = ChameleonServer.Start(
-        new IPEndPoint(IPAddress.Loopback, 0), serverStatic, shaper: shaper);
-
-    // Клиентская несущая - TCP + счётчик размеров исходящих record'ов.
+    var model = TrafficShaper.WebBrowsing;
+    await using var server = ChameleonServer.Start(new IPEndPoint(IPAddress.Loopback, 0), serverStatic,
+        shaper: TrafficShaper.WebBrowsing);
     CarrierWrapper counting = (socket, ct) =>
         Task.FromResult<Stream>(new CountingStream(new NetworkStream(socket, ownsSocket: true), sizes));
 
     await using var client = await ChameleonClient.StartAsync(
         server.EndPoint, clientStatic, serverStatic.Public,
-        new IPEndPoint(IPAddress.Loopback, 0), carrier: counting, shaper: shaper, cancellationToken: cts.Token);
-
+        new IPEndPoint(IPAddress.Loopback, 0), carrier: counting, shaper: model, cancellationToken: cts.Token);
     sizes.Clear();
 
-    var handler = new SocketsHttpHandler
+    using var http = new HttpClient(new SocketsHttpHandler
     {
         Proxy = new WebProxy($"socks5://127.0.0.1:{client.SocksEndPoint.Port}"),
         UseProxy = true,
-    };
-    using var http = new HttpClient(handler);
+    });
     string body = await http.GetStringAsync($"http://127.0.0.1:{originPort}/", cts.Token);
-    Console.WriteLine($"прокси отдал {body.Length} байт тела - работает");
 
-    if (coverWaitMs > 0)
-    {
-        int before = sizes.Count;
-        await Task.Delay(coverWaitMs, cts.Token);
-        Console.WriteLine($"за {coverWaitMs} мс простоя добавилось пакетов-прикрытия: {sizes.Count - before}");
-    }
-
-    var distinct = sizes.OrderBy(x => x).Distinct().ToList();
-    Console.WriteLine($"размеры record'ов на проводе ({sizes.Count} шт), уникальные: [{string.Join(", ", distinct)}]");
-
-    if (shaper.Enabled)
-    {
-        var ladder = new[] { 128, 512, 1536, 4096, RecordFormat.MaxPlaintext };
-        // на проводе record = plaintext + 18 байт (2 заголовок + 16 тег)
-        bool allQuantized = sizes.All(s => ladder.Contains(s - RecordFormat.Overhead));
-        Console.WriteLine(allQuantized
-            ? "✓ все размеры совпадают со ступенями лесенки (настоящие длины скрыты)"
-            : "✗ есть размеры вне лесенки");
-    }
+    var ladder = new[] { 128, 512, 1536, 4096, RecordFormat.MaxPlaintext };
+    bool allQuantized = sizes.All(s => ladder.Contains(s - RecordFormat.Overhead));
+    Console.WriteLine(
+        $"прокси отдал {body.Length} байт; размеры на проводе на ступенях лесенки: {(allQuantized ? "✓ да" : "✗ нет")}");
 }
 
-static int StartHttp(string name, string message)
+static int StartHttp(string message)
 {
     int port = FreePort();
     var listener = new HttpListener();
@@ -115,7 +130,6 @@ static int FreePort()
     return port;
 }
 
-// Обёртка, считающая размеры каждого записанного record'а (одна запись = один record).
 sealed class CountingStream(Stream inner, ConcurrentQueue<int> sizes) : Stream
 {
     public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer,
