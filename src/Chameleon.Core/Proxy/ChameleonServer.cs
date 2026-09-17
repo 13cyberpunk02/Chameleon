@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -8,23 +10,22 @@ using Chameleon.Core.Transport;
 namespace Chameleon.Core.Proxy;
 
 /// <summary>
-/// Сервер: принимает несущие, проводит рукопожатие и для каждого потока клиента
-/// открывает реальное TCP-соединение к запрошенному адресу.
-///
-/// Если входящее соединение - не наш клиент (мусор или активный зонд), сервер
-/// работает как обратный прокси к сайту-декою (<paramref name="decoy"/>): зонд
-/// видит живой настоящий сайт, а не заглушку. Если декой не задан - отдаётся
-/// минимальная статическая страница.
+/// Сервер: принимает несущие. Входящее соединение - это либо НОВАЯ сессия (полное
+/// рукопожатие Noise), либо ПРИСОЕДИНЕНИЕ несущей к существующей сессии (join),
+/// либо чужак/зонд (декой-прокси). Сессии хранятся в реестре по session_id.
 /// </summary>
 public sealed class ChameleonServer : IAsyncDisposable
 {
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
+
+    private sealed record Registered(ChameleonSession Session, byte[] Secret);
 
     private readonly TcpListener _listener;
     private readonly KeyPair _serverStatic;
     private readonly CarrierWrapper? _carrier;
     private readonly DnsEndPoint? _decoy;
     private readonly TrafficShaper? _shaper;
+    private readonly ConcurrentDictionary<string, Registered> _sessions = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
@@ -75,55 +76,110 @@ public sealed class ChameleonServer : IAsyncDisposable
 
     private async Task HandleCarrierAsync(Socket socket, CancellationToken cancellationToken)
     {
-        Stream? carrierStream = null;
-        ChameleonSession? session = null;
+        Stream? carrier = null;
         try
         {
-            carrierStream = _carrier is null
+            carrier = _carrier is null
                 ? new NetworkStream(socket, ownsSocket: true)
                 : await _carrier(socket, cancellationToken).ConfigureAwait(false);
 
-            AcceptOutcome outcome;
-            using (var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-            {
-                handshakeCts.CancelAfter(HandshakeTimeout);
-                outcome = await ChameleonHandshake
-                    .TryAcceptAsync(carrierStream, _serverStatic, carrierId: 1, handshakeCts.Token)
-                    .ConfigureAwait(false);
-            }
+            using var hs = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            hs.CancelAfter(HandshakeTimeout);
 
-            if (!outcome.Succeeded)
+            var buffered = new List<byte>(2);
+            byte[] prefix = new byte[2];
+            if (!await ReadRecordingAsync(carrier, prefix, buffered, hs.Token).ConfigureAwait(false))
             {
-                await ServeCoverAsync(carrierStream, outcome.Buffered, cancellationToken).ConfigureAwait(false);
-                await carrierStream.DisposeAsync().ConfigureAwait(false);
+                await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
                 return;
             }
 
-            session = ChameleonSession.Start(outcome.Channel!, isClient: false, _shaper);
-            session.StreamAccepted += stream => _ = DialAndRelayAsync(session, stream, cancellationToken);
+            int len = BinaryPrimitives.ReadUInt16BigEndian(prefix);
 
-            await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            if (len == CarrierJoin.MessageLength)
+            {
+                await HandleJoinAsync(carrier, hs.Token).ConfigureAwait(false);
+                return;
+            }
+
+            if (len == NoiseIkHandshake.Message1Length)
+            {
+                await HandleNewSessionAsync(carrier, prefix, len, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
         {
-            // ignored
-        }
-        finally
-        {
-            if (session is not null) await session.DisposeAsync().ConfigureAwait(false);
-            else if (carrierStream is not null) await carrierStream.DisposeAsync().ConfigureAwait(false);
+            if (carrier is not null)
+            {
+                try
+                {
+                    await carrier.DisposeAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    // ignored
+                }
+            }
         }
     }
 
-    /// <summary>
-    /// Прикрытие для чужака: обратный прокси к сайту-декою (сначала переигрываем
-    /// уже прочитанные байты), либо статическая страница, если декой не задан.
-    /// </summary>
-    private async Task ServeCoverAsync(Stream carrier, byte[] buffered, CancellationToken cancellationToken)
+    private async Task HandleNewSessionAsync(Stream carrier, byte[] prefix, int len,
+        CancellationToken cancellationToken)
+    {
+        byte[] message1 = await Framing.ReadExactCountAsync(carrier, len, cancellationToken).ConfigureAwait(false);
+        var handshake = NoiseIkHandshake.CreateResponder(_serverStatic);
+        HandshakeResult result;
+        try
+        {
+            handshake.ReadMessage1(message1);
+        }
+        catch (ChameleonProtocolException)
+        {
+            await Cover(carrier, [.. prefix, .. message1], cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        result = handshake.WriteMessage2(out byte[] message2);
+        await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
+
+        var keys = KeySchedule.ForCarrier(result.SessionSecret, carrierId: 1, isClient: false);
+        var channel = new RecordChannel(carrier, keys);
+        var session = ChameleonSession.Start(channel, isClient: false, _shaper);
+        session.StreamAccepted += stream => _ = DialAndRelayAsync(session, stream, _cts.Token);
+
+        string sessionId = Convert.ToHexString(CarrierJoin.SessionId(result.SessionSecret));
+        _sessions[sessionId] = new Registered(session, result.SessionSecret);
+    }
+
+    private async Task HandleJoinAsync(Stream carrier, CancellationToken cancellationToken)
+    {
+        byte[] body = await Framing.ReadExactCountAsync(carrier, CarrierJoin.MessageLength, cancellationToken)
+            .ConfigureAwait(false);
+        var request = CarrierJoin.Parse(body);
+        string sessionId = Convert.ToHexString(request.SessionId);
+
+        if (!_sessions.TryGetValue(sessionId, out var reg) || !CarrierJoin.Verify(reg.Secret, request))
+        {
+            await carrier.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
+        byte[] ack = CarrierJoin.BuildAck(reg.Secret, request.Nonce);
+        await Framing.WriteFrameAsync(carrier, ack, cancellationToken).ConfigureAwait(false);
+
+        var keys = KeySchedule.ForCarrier(reg.Secret, request.CarrierId, isClient: false);
+        reg.Session.AddCarrier(new RecordChannel(carrier, keys));
+    }
+
+    private async Task Cover(Stream carrier, byte[] buffered, CancellationToken cancellationToken)
     {
         if (_decoy is null)
         {
             await ServeStaticPageAsync(carrier).ConfigureAwait(false);
+            await carrier.DisposeAsync().ConfigureAwait(false);
             return;
         }
 
@@ -131,19 +187,25 @@ public sealed class ChameleonServer : IAsyncDisposable
         {
             using var decoy = new TcpClient();
             await decoy.ConnectAsync(_decoy.Host, _decoy.Port, cancellationToken).ConfigureAwait(false);
-            Stream decoyStream = decoy.GetStream();
-
-            if (buffered.Length > 0)
-                await decoyStream.WriteAsync(buffered, cancellationToken).ConfigureAwait(false);
-
-            // Прозрачная двусторонняя перекачка между зондом и реальным сайтом.
-            Task toDecoy = carrier.CopyToAsync(decoyStream, cancellationToken);
-            Task toProbe = decoyStream.CopyToAsync(carrier, cancellationToken);
-            await Task.WhenAny(toDecoy, toProbe).ConfigureAwait(false);
+            Stream d = decoy.GetStream();
+            if (buffered.Length > 0) await d.WriteAsync(buffered, cancellationToken).ConfigureAwait(false);
+            await Task.WhenAny(carrier.CopyToAsync(d, cancellationToken), d.CopyToAsync(carrier, cancellationToken))
+                .ConfigureAwait(false);
         }
         catch (Exception)
         {
             await ServeStaticPageAsync(carrier).ConfigureAwait(false);
+        }
+        finally
+        {
+            try
+            {
+                await carrier.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -151,11 +213,8 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         const string body =
             "<!doctype html><html><head><title>Welcome</title></head><body><h1>It works!</h1></body></html>";
-        string response =
-            "HTTP/1.1 200 OK\r\n" +
-            "Content-Type: text/html; charset=utf-8\r\n" +
-            $"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\n" +
-            "Connection: close\r\n\r\n" + body;
+        string response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
+                          $"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\nConnection: close\r\n\r\n" + body;
         try
         {
             await stream.WriteAsync(Encoding.UTF8.GetBytes(response)).ConfigureAwait(false);
@@ -169,6 +228,28 @@ public sealed class ChameleonServer : IAsyncDisposable
     private static async Task DialAndRelayAsync(ChameleonSession session, ChameleonStream stream,
         CancellationToken cancellationToken)
     {
+        if (stream.Kind == Protocol.StreamKind.Udp)
+        {
+            try
+            {
+                await UdpRelayServer.RunAsync(stream, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                try
+                {
+                    await session.ResetStreamAsync(stream.Id, cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    // ignored
+                }
+            }
+
+            return;
+        }
+
         var target = new TcpClient();
         try
         {
@@ -199,6 +280,21 @@ public sealed class ChameleonServer : IAsyncDisposable
         }
     }
 
+    private static async Task<bool> ReadRecordingAsync(Stream stream, byte[] buffer, List<byte> recorder,
+        CancellationToken cancellationToken)
+    {
+        int read = 0;
+        while (read < buffer.Length)
+        {
+            int n = await stream.ReadAsync(buffer.AsMemory(read), cancellationToken).ConfigureAwait(false);
+            if (n == 0) return false;
+            read += n;
+        }
+
+        recorder.AddRange(buffer);
+        return true;
+    }
+
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
@@ -215,6 +311,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             }
         }
 
+        foreach (var reg in _sessions.Values) await reg.Session.DisposeAsync().ConfigureAwait(false);
         _cts.Dispose();
     }
 }

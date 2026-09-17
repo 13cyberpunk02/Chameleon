@@ -41,7 +41,6 @@ public sealed class TunnelService : IAsyncDisposable
         SetStatus(TunnelStatus.Connecting);
         try
         {
-            // 0) preflight: проверяем tun2socks (и wintun.dll) ДО любых изменений сети.
             string exe = ResolveExecutable(options.Tun2SocksPath);
             string workDir = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory;
             Info($"tun2socks: {exe}");
@@ -79,9 +78,10 @@ public sealed class TunnelService : IAsyncDisposable
             string device = OperatingSystem.IsWindows() ? options.TunDeviceName : $"tun://{options.TunDeviceName}";
             string proxy = $"socks5://{socksEndpoint.Address}:{socksEndpoint.Port}";
             _tun2socks = ProcessRunner.Start(exe,
-                $"--device {device} --proxy {proxy} --loglevel info", m => Log?.Invoke(this, m), workDir);
+                $"--device {device} --proxy {proxy} --loglevel {options.Tun2SocksLogLevel}", m => Log?.Invoke(this, m),
+                workDir);
             int tunIndex = await WaitForTunAsync(options.TunDeviceName, ct).ConfigureAwait(false);
-
+            
             await _net.ConfigureTunAsync(options, tunIndex, ct).ConfigureAwait(false);
             await _net.AddDefaultViaTunAsync(options, ct).ConfigureAwait(false);
             _defaultRouteAdded = true;
@@ -166,7 +166,7 @@ public sealed class TunnelService : IAsyncDisposable
     /// <summary>Ждёт появления TUN-адаптера И его готовности (Up). Возвращает индекс интерфейса.</summary>
     private async Task<int> WaitForTunAsync(string name, CancellationToken ct)
     {
-        for (int i = 0; i < 100; i++) // до ~10 c
+        for (int i = 0; i < 100; i++)
         {
             var ni = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
                 .FirstOrDefault(n => n.Name.Equals(name, StringComparison.OrdinalIgnoreCase));

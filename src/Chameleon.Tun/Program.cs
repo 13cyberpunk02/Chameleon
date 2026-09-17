@@ -10,6 +10,7 @@ using Chameleon.Tunnel;
 
 var positional = new List<string>();
 string? tun2socks = Environment.GetEnvironmentVariable("CHAMELEON_TUN2SOCKS");
+string? logLevel = Environment.GetEnvironmentVariable("CHAMELEON_TUN2SOCKS_LOG");
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -23,13 +24,24 @@ for (int i = 0; i < args.Length; i++)
 
         tun2socks = args[++i];
     }
+    else if (args[i] is "--loglevel" or "-l")
+    {
+        if (i + 1 >= args.Length)
+        {
+            Console.Error.WriteLine("--loglevel требует значение");
+            return 2;
+        }
+
+        logLevel = args[++i];
+    }
     else positional.Add(args[i]);
 }
 
 if (positional.Count < 2)
 {
     Console.WriteLine("Использование:");
-    Console.WriteLine("  Chameleon.Tun <server_host:port> <server_pubkey_hex> [sni] [socks] [--tun2socks <путь>]");
+    Console.WriteLine(
+        "  Chameleon.Tun <server_host:port> <server_pubkey_hex> [sni] [socks] [--tun2socks <путь>] [--loglevel error|info|debug]");
     Console.WriteLine();
     Console.WriteLine(
         "Требуются: права администратора; tun2socks (xjasonlyu); рядом с tun2socks.exe - wintun.dll (Windows).");
@@ -47,6 +59,7 @@ var options = new TunnelOptions
     Tun2SocksPath = tun2socks is { Length: > 0 }
         ? tun2socks
         : (OperatingSystem.IsWindows() ? "tun2socks.exe" : "tun2socks"),
+    Tun2SocksLogLevel = logLevel is { Length: > 0 } ? logLevel : "error",
 };
 
 var service = new TunnelService();

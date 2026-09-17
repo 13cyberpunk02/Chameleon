@@ -6,73 +6,67 @@ using System.Text;
 namespace Chameleon.Core.Proxy;
 
 /// <summary>
-/// Минимальный SOCKS5 (RFC 1928), только метод «без аутентификации» и команда
-/// CONNECT - этого достаточно, чтобы браузер или curl направляли трафик в туннель.
+/// Минимальный SOCKS5 (RFC 1928): методы без аутентификации, команды CONNECT (TCP)
+/// и UDP ASSOCIATE (UDP). Достаточно для браузера, curl и tun2socks.
 /// </summary>
 public static class Socks5
 {
-    public readonly record struct Target(string Host, int Port);
+    public enum Command : byte
+    {
+        Connect = 1,
+        UdpAssociate = 3
+    }
 
-    public static async Task<Target> HandshakeAsync(NetworkStream stream, CancellationToken cancellationToken)
+    public readonly record struct Request(Command Command, string Host, int Port);
+
+    /// <summary>Читает приветствие и запрос (без отправки ответа - ответ шлёт вызывающий).</summary>
+    public static async Task<Request> ReadRequestAsync(NetworkStream stream, CancellationToken cancellationToken)
     {
         byte[] head = new byte[2];
         await ReadExactAsync(stream, head, cancellationToken).ConfigureAwait(false);
         if (head[0] != 0x05) throw new IOException("Не SOCKS5");
         await ReadExactAsync(stream, new byte[head[1]], cancellationToken).ConfigureAwait(false);
-
-        await stream.WriteAsync(new byte[] { 0x05, 0x00 }, cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(new byte[] { 0x05, 0x00 }, cancellationToken)
+            .ConfigureAwait(false);
 
         byte[] request = new byte[4];
         await ReadExactAsync(stream, request, cancellationToken).ConfigureAwait(false);
-        if (request[1] != 0x01)
-        {
-            await ReplyAsync(stream, 0x07, cancellationToken).ConfigureAwait(false);
-            throw new IOException("Поддерживается только CONNECT");
-        }
+        var command = (Command)request[1];
 
         string host = request[3] switch
         {
-            0x01 => await ReadIPv4Async(stream, cancellationToken).ConfigureAwait(false),
-            0x03 => await ReadDomainAsync(stream, cancellationToken).ConfigureAwait(false),
-            0x04 => await ReadIPv6Async(stream, cancellationToken).ConfigureAwait(false),
+            0x01 => new IPAddress(await ReadN(stream, 4, cancellationToken)).ToString(),
+            0x03 => Encoding.ASCII.GetString(await ReadN(stream, (await ReadN(stream, 1, cancellationToken))[0],
+                cancellationToken)),
+            0x04 => new IPAddress(await ReadN(stream, 16, cancellationToken)).ToString(),
             _ => throw new IOException("Неизвестный тип адреса"),
         };
-
-        byte[] portBytes = new byte[2];
-        await ReadExactAsync(stream, portBytes, cancellationToken).ConfigureAwait(false);
+        byte[] portBytes = await ReadN(stream, 2, cancellationToken);
         int port = BinaryPrimitives.ReadUInt16BigEndian(portBytes);
-
-        await ReplyAsync(stream, 0x00, cancellationToken).ConfigureAwait(false);
-        return new Target(host, port);
+        return new Request(command, host, port);
     }
 
-    private static async Task<string> ReadIPv4Async(NetworkStream stream, CancellationToken cancellationToken)
+    /// <summary>Ответ клиенту: код + привязанный адрес (для UDP - адрес UDP-релея).</summary>
+    public static Task ReplyAsync(NetworkStream stream, byte code, IPEndPoint bound,
+        CancellationToken cancellationToken)
     {
-        byte[] address = new byte[4];
-        await ReadExactAsync(stream, address, cancellationToken).ConfigureAwait(false);
-        return new IPAddress(address).ToString();
-    }
-
-    private static async Task<string> ReadIPv6Async(NetworkStream stream, CancellationToken cancellationToken)
-    {
-        byte[] address = new byte[16];
-        await ReadExactAsync(stream, address, cancellationToken).ConfigureAwait(false);
-        return new IPAddress(address).ToString();
-    }
-
-    private static async Task<string> ReadDomainAsync(NetworkStream stream, CancellationToken cancellationToken)
-    {
-        byte[] lengthByte = new byte[1];
-        await ReadExactAsync(stream, lengthByte, cancellationToken).ConfigureAwait(false);
-        byte[] domain = new byte[lengthByte[0]];
-        await ReadExactAsync(stream, domain, cancellationToken).ConfigureAwait(false);
-        return Encoding.ASCII.GetString(domain);
-    }
-
-    private static Task ReplyAsync(NetworkStream stream, byte code, CancellationToken cancellationToken)
-    {
-        byte[] reply = [0x05, code, 0x00, 0x01, 0, 0, 0, 0, 0, 0];
+        byte[] addr = bound.Address.GetAddressBytes();
+        byte atyp = (byte)(addr.Length == 4 ? 0x01 : 0x04);
+        byte[] reply = new byte[4 + addr.Length + 2];
+        reply[0] = 0x05;
+        reply[1] = code;
+        reply[2] = 0x00;
+        reply[3] = atyp;
+        addr.CopyTo(reply, 4);
+        BinaryPrimitives.WriteUInt16BigEndian(reply.AsSpan(4 + addr.Length), (ushort)bound.Port);
         return stream.WriteAsync(reply, cancellationToken).AsTask();
+    }
+
+    private static async Task<byte[]> ReadN(NetworkStream s, int n, CancellationToken ct)
+    {
+        byte[] b = new byte[n];
+        await ReadExactAsync(s, b, ct).ConfigureAwait(false);
+        return b;
     }
 
     private static async Task ReadExactAsync(NetworkStream stream, byte[] buffer, CancellationToken cancellationToken)

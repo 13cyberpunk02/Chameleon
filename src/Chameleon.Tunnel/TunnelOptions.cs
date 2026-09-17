@@ -3,7 +3,7 @@
 /// <summary>Настройки VPN-режима (весь трафик через TUN -> наш SOCKS5 -> сервер).</summary>
 public sealed class TunnelOptions
 {
-    /// <summary>Адрес сервера, host:port (например dl.proxy.site:443).</summary>
+    /// <summary>Адрес сервера, host:port (например dl.cyberius.site:443).</summary>
     public required string Server { get; init; }
 
     /// <summary>Публичный статический ключ сервера (hex).</summary>
@@ -31,6 +31,10 @@ public sealed class TunnelOptions
 
     /// <summary>DNS, прописываемый на TUN-адаптер (идёт в туннель). См. оговорку про UDP.</summary>
     public string TunDns { get; init; } = "1.1.1.1";
+
+    /// <summary>Уровень логов tun2socks: debug|info|warn|error|silent. По умолчанию error
+    /// (иначе, пока нет UDP, лог засоряется предупреждениями «UDP ASSOCIATE not supported»).</summary>
+    public string Tun2SocksLogLevel { get; init; } = "error";
 }
 
 public enum TunnelStatus

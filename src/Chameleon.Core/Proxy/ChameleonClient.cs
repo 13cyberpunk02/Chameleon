@@ -43,7 +43,6 @@ public sealed class ChameleonClient : IAsyncDisposable
             .ConnectAsync(stream, clientStatic, serverStaticPublic, carrierId, cancellationToken).ConfigureAwait(false);
         var session = ChameleonSession.Start(channel, isClient: true, shaper);
 
-        // Дополнительные несущие: присоединяем к той же сессии по join.
         if (extraCarrierEndpoints is not null)
         {
             uint nextCarrierId = carrierId + 1;
@@ -123,10 +122,19 @@ public sealed class ChameleonClient : IAsyncDisposable
     {
         try
         {
-            var stream = new NetworkStream(socket, ownsSocket: false);
-            Socks5.Target target = await Socks5.HandshakeAsync(stream, cancellationToken).ConfigureAwait(false);
+            var control = new NetworkStream(socket, ownsSocket: false);
+            Socks5.Request req = await Socks5.ReadRequestAsync(control, cancellationToken).ConfigureAwait(false);
+
+            if (req.Command == Socks5.Command.UdpAssociate)
+            {
+                await HandleUdpAssociateAsync(socket, control, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            
+            await Socks5.ReplyAsync(control, 0x00, new IPEndPoint(IPAddress.Any, 0), cancellationToken)
+                .ConfigureAwait(false);
             ChameleonStream logical = await _session
-                .OpenStreamAsync(target.Host, target.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
+                .OpenStreamAsync(req.Host, req.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
             await Relay.RunAsync(socket, logical, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
@@ -134,6 +142,34 @@ public sealed class ChameleonClient : IAsyncDisposable
             try
             {
                 socket.Dispose();
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+    }
+
+    private async Task HandleUdpAssociateAsync(Socket control, NetworkStream controlStream,
+        CancellationToken cancellationToken)
+    {
+        var udp = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        udp.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var bound = (IPEndPoint)udp.LocalEndPoint!;
+
+        await Socks5.ReplyAsync(controlStream, 0x00, bound, cancellationToken).ConfigureAwait(false);
+
+        ChameleonStream logical = await _session
+            .OpenStreamAsync("0.0.0.0", 0, Protocol.StreamKind.Udp, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await UdpRelayClient.RunAsync(udp, controlStream, logical, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            try
+            {
+                udp.Dispose();
             }
             catch
             {
