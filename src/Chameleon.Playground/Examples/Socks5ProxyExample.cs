@@ -28,6 +28,6 @@ public static class Socks5ProxyExample
         string r1 = await http.GetStringAsync($"http://127.0.0.1:{originPort}/hello", cts.Token);
         string r2 = await http.GetStringAsync($"http://127.0.0.1:{originPort}/second", cts.Token);
         Console.WriteLine($"ответ 1: «{r1}»");
-        Console.WriteLine($"ответ 2: «{r2}» (та же сессия — потоки мультиплексируются)");
+        Console.WriteLine($"ответ 2: «{r2}» (та же сессия - потоки мультиплексируются)");
     }
 }

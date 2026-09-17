@@ -1,6 +1,6 @@
 ﻿namespace Chameleon.Tunnel;
 
-/// <summary>Настройки VPN-режима (весь трафик через TUN → наш SOCKS5 → сервер).</summary>
+/// <summary>Настройки VPN-режима (весь трафик через TUN -> наш SOCKS5 -> сервер).</summary>
 public sealed class TunnelOptions
 {
     /// <summary>Адрес сервера, host:port (например dl.proxy.site:443).</summary>

@@ -54,7 +54,7 @@ static KeyPair LoadOrCreateKey(string path)
     string? dir = Path.GetDirectoryName(path);
     if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
     File.WriteAllText(path, Convert.ToHexString(fresh).ToLowerInvariant());
-    Console.WriteLine($"(сгенерирован новый ключ сервера → {path})");
+    Console.WriteLine($"(сгенерирован новый ключ сервера -> {path})");
     return new KeyPair(fresh, X25519.ScalarMultBase(fresh));
 }
 

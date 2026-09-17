@@ -59,7 +59,6 @@ public sealed class TunnelService : IAsyncDisposable
             _serverIp = serverEndpoint.Address.ToString();
             IPEndPoint socksEndpoint = ParseLocal(options.SocksListen);
 
-            // 1) клиент (локальный SOCKS5)
             IPEndPoint[]? extras = options.ExtraCarriers is { Length: > 0 }
                 ? await Task.WhenAll(options.ExtraCarriers
                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -72,21 +71,17 @@ public sealed class TunnelService : IAsyncDisposable
                 .ConfigureAwait(false);
             Info($"клиент поднят, SOCKS5 на {_client.SocksEndPoint}, несущих: {_client.CarrierCount}");
 
-            // 2) маршрут-исключение до сервера (мимо TUN)
             var (gateway, ifIndex) = await _net.GetDefaultRouteAsync(ct).ConfigureAwait(false);
             Info($"текущий шлюз: {gateway} (if {ifIndex})");
             await _net.AddHostRouteAsync(_serverIp, gateway, ifIndex, ct).ConfigureAwait(false);
             _hostRouteAdded = true;
 
-            // 3) tun2socks: TUN → наш SOCKS5
             string device = OperatingSystem.IsWindows() ? options.TunDeviceName : $"tun://{options.TunDeviceName}";
             string proxy = $"socks5://{socksEndpoint.Address}:{socksEndpoint.Port}";
             _tun2socks = ProcessRunner.Start(exe,
                 $"--device {device} --proxy {proxy} --loglevel info", m => Log?.Invoke(this, m), workDir);
             int tunIndex = await WaitForTunAsync(options.TunDeviceName, ct).ConfigureAwait(false);
 
-            // 4) настроить адаптер (с ожиданием готовности и проверкой, что адрес встал)
-            //    и завернуть весь трафик в TUN
             await _net.ConfigureTunAsync(options, tunIndex, ct).ConfigureAwait(false);
             await _net.AddDefaultViaTunAsync(options, ct).ConfigureAwait(false);
             _defaultRouteAdded = true;
@@ -105,7 +100,6 @@ public sealed class TunnelService : IAsyncDisposable
 
     public async Task DisconnectAsync(CancellationToken ct = default)
     {
-        // Откат в обратном порядке; каждый шаг защищён, чтобы не застрять.
         if (_options is { } o)
         {
             if (_defaultRouteAdded)
