@@ -1,0 +1,60 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Chameleon.Gui.ViewModels"
+        x:Class="Chameleon.Gui.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Width="640" Height="560" MinWidth="560" MinHeight="480"
+        Title="Chameleon" WindowStartupLocation="CenterScreen">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+
+        <!-- Настройки подключения -->
+        <StackPanel Grid.Row="0" Spacing="8">
+            <TextBlock Text="Chameleon" FontSize="22" FontWeight="Bold" />
+            <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Сервер" VerticalAlignment="Center" />
+                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,3" PlaceholderText="dl.example.com:443"
+                         Text="{Binding Server}" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Ключ сервера" VerticalAlignment="Center" />
+                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,3" PlaceholderText="публичный ключ (hex)"
+                         Text="{Binding ServerKey}" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="SNI" VerticalAlignment="Center" />
+                <TextBox Grid.Row="2" Grid.Column="1" Margin="0,3" Text="{Binding Sni}" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="SOCKS" VerticalAlignment="Center" />
+                <TextBox Grid.Row="3" Grid.Column="1" Margin="0,3" Text="{Binding Socks}" />
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="tun2socks" VerticalAlignment="Center" />
+                <TextBox Grid.Row="4" Grid.Column="1" Margin="0,3" PlaceholderText="путь к tun2socks.exe (рядом wintun.dll)"
+                         Text="{Binding Tun2SocksPath}" />
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4">
+                <Button Content="Подключить" Width="140"
+                        Command="{Binding ConnectCommand}" />
+                <Button Content="Отключить" Width="140"
+                        Command="{Binding DisconnectCommand}" />
+                <TextBlock Text="{Binding Status}" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Лог -->
+        <Border Grid.Row="1" Margin="0,12" BorderBrush="#40808080" BorderThickness="1" CornerRadius="6">
+            <ScrollViewer>
+                <ItemsControl ItemsSource="{Binding Log}" Margin="8">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                       TextWrapping="Wrap" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <TextBlock Grid.Row="2" TextWrapping="Wrap" Foreground="#808080" FontSize="11"
+                   Text="Требуются права администратора. tun2socks и wintun.dll должны лежать в одной папке. Весь трафик (TCP и UDP) идёт через туннель." />
+    </Grid>
+</Window>
