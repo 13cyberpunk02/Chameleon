@@ -6,7 +6,6 @@ using Chameleon.Gui.Settings;
 using Chameleon.Tunnel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.Extensions.Logging;
 
 namespace Chameleon.Gui.ViewModels;
 
@@ -122,7 +121,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void AppendLog(string message)
     {
-        // из фонового потока — в UI-поток
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             Log.Add($"{DateTime.Now:HH:mm:ss}  {message}");

@@ -17,7 +17,6 @@ namespace Chameleon.Core.Session;
 /// </summary>
 public sealed class ChameleonSession : IAsyncDisposable
 {
-    private static readonly TimeSpan RetransmitTimeout = TimeSpan.FromMilliseconds(300);
     private const int MaxTrackedReceived = 4096;
 
     private sealed class Carrier(RecordChannel channel)
@@ -27,7 +26,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         public Task? Loop;
     }
 
-    private sealed record InFlight(byte[] Plaintext, int Length, long SentTicks);
+    private sealed record InFlight(byte[] Plaintext, int Length, long SentTicks, bool Retransmitted);
 
     private readonly List<Carrier> _carriers = [];
     private readonly bool _isClient;
@@ -43,6 +42,10 @@ public sealed class ChameleonSession : IAsyncDisposable
     private long _nextPacketNumber;
     private long _nextStreamId;
     private long _lastSendTicks;
+    private readonly CongestionControl _cc = new();
+    private int _ackPending;
+    private Carrier? _ackVia;
+    private Task? _ackLoop;
     private int _rrIndex;
     private Task? _coverLoop;
     private Task? _rtoLoop;
@@ -68,6 +71,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         if (s._shaper.CoverActive)
             s._coverLoop = Task.Run(() => s.CoverLoopAsync(s._cts.Token));
         s._rtoLoop = Task.Run(() => s.RetransmitLoopAsync(s._cts.Token));
+        s._ackLoop = Task.Run(() => s.AckLoopAsync(s._cts.Token));
         return s;
     }
 
@@ -81,8 +85,7 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     private void StartCarrierLoop(Carrier c) => c.Loop = Task.Run(() => ReceiveLoopAsync(c, _cts.Token));
 
-    // --- открытие потоков и отправка ---
-
+    
     public async ValueTask<ChameleonStream> OpenStreamAsync(
         string host, int port, StreamKind kind = StreamKind.Tcp, CancellationToken cancellationToken = default)
     {
@@ -127,10 +130,12 @@ public sealed class ChameleonSession : IAsyncDisposable
         {
             int length = build(scratch);
             length = Pad(scratch, length);
-
+            
             VarInt.TryRead(scratch, out ulong pn, out _);
-            byte[] plaintext = scratch[..length].ToArray();
-            _unacked[pn] = new InFlight(plaintext, length, Environment.TickCount64);
+            byte[] plaintext = [.. scratch[..length]];
+            
+            await _cc.AcquireAsync(cancellationToken).ConfigureAwait(false);
+            _unacked[pn] = new InFlight(plaintext, length, Environment.TickCount64, Retransmitted: false);
 
             await SendOnAnyAsync(plaintext, length, cancellationToken).ConfigureAwait(false);
         }
@@ -174,8 +179,7 @@ public sealed class ChameleonSession : IAsyncDisposable
 
         return length;
     }
-
-    // --- надёжность: ретрансмиты и ACK ---
+    
 
     private async Task RetransmitLoopAsync(CancellationToken cancellationToken)
     {
@@ -183,14 +187,40 @@ public sealed class ChameleonSession : IAsyncDisposable
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(20, cancellationToken).ConfigureAwait(false);
                 long now = Environment.TickCount64;
+                int rto = _cc.RtoMs;
+                bool loss = false;
                 foreach (var (pn, f) in _unacked)
                 {
-                    if (now - f.SentTicks < RetransmitTimeout.TotalMilliseconds) continue;
-                    _unacked[pn] = f with { SentTicks = now };
+                    if (now - f.SentTicks < rto) continue;
+                    loss = true;
+                    _unacked[pn] = f with { SentTicks = now, Retransmitted = true };
                     await SendOnAnyAsync(f.Plaintext, f.Length, cancellationToken).ConfigureAwait(false);
                 }
+
+                if (loss) _cc.OnLoss();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception)
+        {
+            // ignored
+        }
+    }
+
+    /// <summary>Коалесцирование ACK: не на каждый пакет, а не чаще раза в 5 мс.</summary>
+    private async Task AckLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(5, cancellationToken).ConfigureAwait(false);
+                if (Interlocked.Exchange(ref _ackPending, 0) == 1 && _ackVia is { } via)
+                    await SendAckAsync(via, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -204,8 +234,10 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     private void ProcessAck(AckFrame ack)
     {
+        long now = Environment.TickCount64;
         foreach (ulong pn in AckedPacketNumbers(ack))
-            _unacked.TryRemove(pn, out _);
+            if (_unacked.TryRemove(pn, out var f))
+                _cc.OnAck((int)(now - f.SentTicks), f.Retransmitted);
     }
 
     private static IEnumerable<ulong> AckedPacketNumbers(AckFrame ack)
@@ -283,7 +315,6 @@ public sealed class ChameleonSession : IAsyncDisposable
         }
     }
 
-    // --- приём ---
 
     private async Task ReceiveLoopAsync(Carrier carrier, CancellationToken cancellationToken)
     {
@@ -321,7 +352,10 @@ public sealed class ChameleonSession : IAsyncDisposable
                 }
 
                 if (reliable)
-                    await SendAckAsync(carrier, cancellationToken).ConfigureAwait(false);
+                {
+                    _ackVia = carrier;
+                    Interlocked.Exchange(ref _ackPending, 1);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -440,7 +474,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
-        foreach (var t in new[] { _coverLoop, _rtoLoop }.Concat(_carriers.Select(c => c.Loop)))
+        foreach (var t in new[] { _coverLoop, _rtoLoop, _ackLoop }.Concat(_carriers.Select(c => c.Loop)))
             if (t is not null)
             {
                 try

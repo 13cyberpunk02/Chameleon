@@ -5,7 +5,16 @@
         <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        
+        <ServerGarbageCollection>false</ServerGarbageCollection>
+        <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+        <TieredCompilation>true</TieredCompilation>
+        <TieredPGO>false</TieredPGO>
     </PropertyGroup>
+
+    <ItemGroup>        
+        <RuntimeHostConfigurationOption Include="System.GC.HeapHardLimit" Value="100663296" Trim="false" />
+    </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\Chameleon.Core\Chameleon.Core.csproj" />
