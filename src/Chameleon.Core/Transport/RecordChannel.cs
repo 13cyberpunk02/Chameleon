@@ -8,21 +8,12 @@ namespace Chameleon.Core.Transport;
 /// Одна несущая: превращает любой надёжный упорядоченный Stream (TCP, TLS, WebSocket)
 /// в канал зашифрованных record'ов. Сессия выше не знает, какой Stream внизу.
 /// </summary>
-public sealed class RecordChannel : IAsyncDisposable
+public sealed class RecordChannel(Stream stream, CarrierKeys keys) : ICarrierChannel
 {
-    private readonly Stream _stream;
-    private readonly PipeReader _reader;
-    private readonly RecordSealer _sealer;
-    private readonly RecordOpener _opener;
+    private readonly PipeReader _reader = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
+    private readonly RecordSealer _sealer = new(keys.Send);
+    private readonly RecordOpener _opener = new(keys.Receive);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
-
-    public RecordChannel(Stream stream, CarrierKeys keys)
-    {
-        _stream = stream;
-        _reader = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
-        _sealer = new RecordSealer(keys.Send);
-        _opener = new RecordOpener(keys.Receive);
-    }
 
     /// <returns>Длина открытого текста или -1, если удалённая сторона корректно закрыла поток.</returns>
     public async ValueTask<int> ReadRecordAsync(Memory<byte> destination, CancellationToken cancellationToken = default)
@@ -56,10 +47,9 @@ public sealed class RecordChannel : IAsyncDisposable
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Шифрование внутри блокировки: порядок счётчиков должен совпадать с порядком на проводе.
             int length = _sealer.Seal(plaintext.Span, record);
-            await _stream.WriteAsync(record.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
-            await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await stream.WriteAsync(record.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -105,7 +95,7 @@ public sealed class RecordChannel : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _reader.CompleteAsync().ConfigureAwait(false);
-        await _stream.DisposeAsync().ConfigureAwait(false);
+        await stream.DisposeAsync().ConfigureAwait(false);
         _sealer.Dispose();
         _opener.Dispose();
         _writeLock.Dispose();

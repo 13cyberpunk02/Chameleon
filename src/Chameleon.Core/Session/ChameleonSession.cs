@@ -19,9 +19,9 @@ public sealed class ChameleonSession : IAsyncDisposable
 {
     private const int MaxTrackedReceived = 4096;
 
-    private sealed class Carrier(RecordChannel channel)
+    private sealed class Carrier(ICarrierChannel channel)
     {
-        public RecordChannel Channel { get; } = channel;
+        public ICarrierChannel Channel { get; } = channel;
         public volatile bool Alive = true;
         public Task? Loop;
     }
@@ -50,7 +50,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     private Task? _coverLoop;
     private Task? _rtoLoop;
 
-    private ChameleonSession(RecordChannel first, bool isClient, TrafficShaper shaper)
+    private ChameleonSession(ICarrierChannel first, bool isClient, TrafficShaper shaper)
     {
         _isClient = isClient;
         _shaper = shaper;
@@ -64,7 +64,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     public Action<ChameleonStream>? StreamAccepted { get; set; }
     public int CarrierCount => _carriers.Count(c => c.Alive);
 
-    public static ChameleonSession Start(RecordChannel channel, bool isClient, TrafficShaper? shaper = null)
+    public static ChameleonSession Start(ICarrierChannel channel, bool isClient, TrafficShaper? shaper = null)
     {
         var s = new ChameleonSession(channel, isClient, shaper ?? TrafficShaper.Off);
         s.StartCarrierLoop(s._carriers[0]);
@@ -76,7 +76,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     }
 
     /// <summary>Добавить ещё одну несущую в живую сессию (ключи выведены для её carrier_id).</summary>
-    public void AddCarrier(RecordChannel channel)
+    public void AddCarrier(ICarrierChannel channel)
     {
         var c = new Carrier(channel);
         _carriers.Add(c);
@@ -85,7 +85,7 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     private void StartCarrierLoop(Carrier c) => c.Loop = Task.Run(() => ReceiveLoopAsync(c, _cts.Token));
 
-    
+
     public async ValueTask<ChameleonStream> OpenStreamAsync(
         string host, int port, StreamKind kind = StreamKind.Tcp, CancellationToken cancellationToken = default)
     {
@@ -130,10 +130,12 @@ public sealed class ChameleonSession : IAsyncDisposable
         {
             int length = build(scratch);
             length = Pad(scratch, length);
-            
+
+            // Достаём номер пакета из уже собранного плейнтекста (varint в начале).
             VarInt.TryRead(scratch, out ulong pn, out _);
-            byte[] plaintext = [.. scratch[..length]];
-            
+            byte[] plaintext = scratch[..length].ToArray();
+
+            // Окно перегрузки: ждём место под пакет (не флудим канал).
             await _cc.AcquireAsync(cancellationToken).ConfigureAwait(false);
             _unacked[pn] = new InFlight(plaintext, length, Environment.TickCount64, Retransmitted: false);
 
@@ -165,6 +167,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                 c.Alive = false;
             }
         }
+        // ни одной живой несущей - молча, RTO повторит, когда/если несущая появится
     }
 
     private int Pad(byte[] buffer, int length)
@@ -179,7 +182,8 @@ public sealed class ChameleonSession : IAsyncDisposable
 
         return length;
     }
-    
+
+    // --- надёжность: ретрансмиты и ACK ---
 
     private async Task RetransmitLoopAsync(CancellationToken cancellationToken)
     {
@@ -199,7 +203,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                     await SendOnAnyAsync(f.Plaintext, f.Length, cancellationToken).ConfigureAwait(false);
                 }
 
-                if (loss) _cc.OnLoss();
+                if (loss) _cc.OnLoss(); // откат окна при таймауте
             }
         }
         catch (OperationCanceledException)
@@ -237,7 +241,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         long now = Environment.TickCount64;
         foreach (ulong pn in AckedPacketNumbers(ack))
             if (_unacked.TryRemove(pn, out var f))
-                _cc.OnAck((int)(now - f.SentTicks), f.Retransmitted);
+                _cc.OnAck((int)(now - f.SentTicks), f.Retransmitted); // окно растёт, RTT по Карну
     }
 
     private static IEnumerable<ulong> AckedPacketNumbers(AckFrame ack)
@@ -314,7 +318,6 @@ public sealed class ChameleonSession : IAsyncDisposable
             return (largest, firstRange, ranges);
         }
     }
-
 
     private async Task ReceiveLoopAsync(Carrier carrier, CancellationToken cancellationToken)
     {

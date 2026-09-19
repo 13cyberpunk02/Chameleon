@@ -39,7 +39,7 @@ public sealed class ChameleonClient : IAsyncDisposable
             ? new NetworkStream(socket, ownsSocket: true)
             : await carrier(socket, cancellationToken).ConfigureAwait(false);
 
-        (RecordChannel channel, byte[] secret) = await ChameleonHandshake
+        (ICarrierChannel channel, byte[] secret) = await ChameleonHandshake
             .ConnectAsync(stream, clientStatic, serverStaticPublic, carrierId, cancellationToken).ConfigureAwait(false);
         var session = ChameleonSession.Start(channel, isClient: true, shaper);
 
@@ -90,8 +90,7 @@ public sealed class ChameleonClient : IAsyncDisposable
             throw new ChameleonProtocolException("Сервер не подтвердил присоединение несущей");
         }
 
-        var keys = KeySchedule.ForCarrier(secret, carrierId, isClient: true);
-        session.AddCarrier(new RecordChannel(stream, keys));
+        session.AddCarrier(new FrameChannel(stream));
     }
 
     private static byte[] GetNonce(byte[] join) => join.AsSpan(16 + 4, 16).ToArray();
@@ -130,7 +129,7 @@ public sealed class ChameleonClient : IAsyncDisposable
                 await HandleUdpAssociateAsync(socket, control, cancellationToken).ConfigureAwait(false);
                 return;
             }
-            
+
             await Socks5.ReplyAsync(control, 0x00, new IPEndPoint(IPAddress.Any, 0), cancellationToken)
                 .ConfigureAwait(false);
             ChameleonStream logical = await _session

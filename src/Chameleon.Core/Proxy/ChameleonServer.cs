@@ -145,8 +145,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
 
-        var keys = KeySchedule.ForCarrier(result.SessionSecret, carrierId: 1, isClient: false);
-        var channel = new RecordChannel(carrier, keys);
+        var channel = new FrameChannel(carrier);
         var session = ChameleonSession.Start(channel, isClient: false, _shaper);
         session.StreamAccepted += stream => _ = DialAndRelayAsync(session, stream, _cts.Token);
 
@@ -170,8 +169,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         byte[] ack = CarrierJoin.BuildAck(reg.Secret, request.Nonce);
         await Framing.WriteFrameAsync(carrier, ack, cancellationToken).ConfigureAwait(false);
 
-        var keys = KeySchedule.ForCarrier(reg.Secret, request.CarrierId, isClient: false);
-        reg.Session.AddCarrier(new RecordChannel(carrier, keys));
+        reg.Session.AddCarrier(new FrameChannel(carrier));
     }
 
     private async Task Cover(Stream carrier, byte[] buffered, CancellationToken cancellationToken)

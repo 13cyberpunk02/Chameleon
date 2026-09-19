@@ -11,7 +11,7 @@ namespace Chameleon.Core.Transport;
 /// </summary>
 public sealed class AcceptOutcome
 {
-    private AcceptOutcome(RecordChannel? channel, byte[]? clientStaticPublic, byte[]? sessionSecret, byte[] buffered)
+    private AcceptOutcome(ICarrierChannel? channel, byte[]? clientStaticPublic, byte[]? sessionSecret, byte[] buffered)
     {
         Channel = channel;
         ClientStaticPublic = clientStaticPublic;
@@ -19,13 +19,13 @@ public sealed class AcceptOutcome
         Buffered = buffered;
     }
 
-    public RecordChannel? Channel { get; }
+    public ICarrierChannel? Channel { get; }
     public byte[]? ClientStaticPublic { get; }
     public byte[]? SessionSecret { get; }
     public byte[] Buffered { get; }
     public bool Succeeded => Channel is not null;
 
-    internal static AcceptOutcome Success(RecordChannel channel, byte[] clientStaticPublic, byte[] sessionSecret)
+    internal static AcceptOutcome Success(ICarrierChannel channel, byte[] clientStaticPublic, byte[] sessionSecret)
         => new(channel, clientStaticPublic, sessionSecret, []);
 
     internal static AcceptOutcome Cover(byte[] buffered) => new(null, null, null, buffered);
@@ -35,7 +35,7 @@ public sealed class AcceptOutcome
 public static class ChameleonHandshake
 {
     /// <returns>Канал несущей и секрет сессии (нужен для присоединения других несущих).</returns>
-    public static async Task<(RecordChannel Channel, byte[] SessionSecret)> ConnectAsync(
+    public static async Task<(ICarrierChannel Channel, byte[] SessionSecret)> ConnectAsync(
         Stream stream, KeyPair clientStatic, byte[] serverStaticPublic, uint carrierId,
         CancellationToken cancellationToken = default)
     {
@@ -46,9 +46,8 @@ public static class ChameleonHandshake
         int len = await Framing.ReadPrefixAsync(stream, prefix, cancellationToken).ConfigureAwait(false);
         byte[] message2 = await Framing.ReadExactCountAsync(stream, len, cancellationToken).ConfigureAwait(false);
         HandshakeResult result = handshake.ReadMessage2(message2);
-
-        var keys = KeySchedule.ForCarrier(result.SessionSecret, carrierId, isClient: true);
-        return (new RecordChannel(stream, keys), result.SessionSecret);
+        
+        return (new FrameChannel(stream), result.SessionSecret);
     }
 
     /// <summary>
@@ -85,8 +84,7 @@ public static class ChameleonHandshake
         HandshakeResult result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(stream, message2, cancellationToken).ConfigureAwait(false);
 
-        var keys = KeySchedule.ForCarrier(result.SessionSecret, carrierId, isClient: false);
-        return AcceptOutcome.Success(new RecordChannel(stream, keys), result.RemoteStaticPublic, result.SessionSecret);
+        return AcceptOutcome.Success(new FrameChannel(stream), result.RemoteStaticPublic, result.SessionSecret);
     }
 
     private static async Task<bool> ReadRecordingAsync(
