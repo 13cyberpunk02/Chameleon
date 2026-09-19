@@ -24,6 +24,17 @@ public partial class MainWindowViewModel : ViewModelBase
         Socks = _settings.Socks;
         Tun2SocksPath = _settings.Tun2SocksPath;
         LogLevel = _settings.LogLevel;
+        AutoConnect = _settings.AutoConnect;
+
+        if (string.IsNullOrWhiteSpace(Tun2SocksPath))
+        {
+            string? found = Tun2SocksLocator.Find();
+            if (found is not null)
+            {
+                Tun2SocksPath = found;
+                AppendLog($"tun2socks найден автоматически: {found}");
+            }
+        }
     }
 
     [ObservableProperty] private string _server = "";
@@ -33,6 +44,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private string _tun2SocksPath = "";
     [ObservableProperty] private string _logLevel = "error";
     [ObservableProperty] private string _profileName = "";
+    [ObservableProperty] private bool _autoConnect;
 
     [ObservableProperty] private string _status = "Отключено";
     [ObservableProperty] private bool _isBusy;
@@ -44,6 +56,40 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<Task<string?>>? GetClipboard { get; set; }
 
     public Func<string, Task>? SetClipboard { get; set; }
+
+    /// <summary>Диалог выбора файла tun2socks (устанавливает View).</summary>
+    public Func<Task<string?>>? PickTun2SocksFile { get; set; }
+
+    [RelayCommand]
+    private async Task BrowseTun2SocksAsync()
+    {
+        if (PickTun2SocksFile is null) return;
+        string? path = await PickTun2SocksFile();
+        if (string.IsNullOrWhiteSpace(path)) return;
+        Tun2SocksPath = path;
+        if (!Tun2SocksLocator.HasWintunNextTo(path))
+            AppendLog("ВНИМАНИЕ: рядом с tun2socks нет wintun.dll - положите её в ту же папку");
+        else AppendLog($"tun2socks выбран: {path}");
+    }
+
+    [RelayCommand]
+    private async Task CopyLogAsync()
+    {
+        if (SetClipboard is null) return;
+        await SetClipboard(string.Join(Environment.NewLine, Log));
+        AppendLog("Лог скопирован в буфер обмена");
+    }
+
+    /// <summary>Вызывается View после загрузки окна: автоподключение, если включено.</summary>
+    public async Task TryAutoConnectAsync()
+    {
+        if (AutoConnect && !IsConnected && !IsBusy
+            && !string.IsNullOrWhiteSpace(Server) && !string.IsNullOrWhiteSpace(ServerKey))
+        {
+            AppendLog("Автоподключение…");
+            await ConnectAsync();
+        }
+    }
 
     [RelayCommand]
     private async Task PasteLinkAsync()
@@ -189,6 +235,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void AppendLog(string message)
     {
+        // из фонового потока - в UI-поток
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             Log.Add($"{DateTime.Now:HH:mm:ss}  {message}");
@@ -204,6 +251,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.Socks = Socks;
         _settings.Tun2SocksPath = Tun2SocksPath;
         _settings.LogLevel = LogLevel;
+        _settings.AutoConnect = AutoConnect;
         _settings.Save();
     }
 

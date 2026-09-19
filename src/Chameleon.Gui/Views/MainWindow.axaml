@@ -13,11 +13,11 @@
             <TextBlock Text="Chameleon" FontSize="22" FontWeight="Bold" />
             <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Сервер" VerticalAlignment="Center" />
-                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,3" PlaceholderText="dl.example.com:443"
+                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,3" Watermark="dl.example.com:443"
                          Text="{Binding Server}" />
 
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Ключ сервера" VerticalAlignment="Center" />
-                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,3" PlaceholderText="публичный ключ (hex)"
+                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,3" Watermark="публичный ключ (hex)"
                          Text="{Binding ServerKey}" />
 
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="SNI" VerticalAlignment="Center" />
@@ -27,8 +27,12 @@
                 <TextBox Grid.Row="3" Grid.Column="1" Margin="0,3" Text="{Binding Socks}" />
 
                 <TextBlock Grid.Row="4" Grid.Column="0" Text="tun2socks" VerticalAlignment="Center" />
-                <TextBox Grid.Row="4" Grid.Column="1" Margin="0,3" PlaceholderText="путь к tun2socks.exe (рядом wintun.dll)"
-                         Text="{Binding Tun2SocksPath}" />
+                <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,3">
+                    <TextBox Grid.Column="0" Watermark="путь к tun2socks.exe (рядом wintun.dll)"
+                             Text="{Binding Tun2SocksPath}" />
+                    <Button Grid.Column="1" Content="Обзор…" Margin="6,0,0,0"
+                            Command="{Binding BrowseTun2SocksCommand}" />
+                </Grid>
             </Grid>
 
             <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2">
@@ -38,6 +42,8 @@
                         ToolTip.Tip="Скопировать текущий профиль как chameleon://... для шаринга" />
                 <TextBlock Text="{Binding ProfileName}" VerticalAlignment="Center" FontStyle="Italic"
                            Foreground="#808080" />
+                <CheckBox Content="Автоподключение" IsChecked="{Binding AutoConnect}"
+                          ToolTip.Tip="Подключаться автоматически при запуске" />
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4">
@@ -51,16 +57,20 @@
 
         <!-- Лог -->
         <Border Grid.Row="1" Margin="0,12" BorderBrush="#40808080" BorderThickness="1" CornerRadius="6">
-            <ScrollViewer>
-                <ItemsControl ItemsSource="{Binding Log}" Margin="8">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" FontFamily="Consolas,Menlo,monospace" FontSize="12"
-                                       TextWrapping="Wrap" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+            <Grid RowDefinitions="Auto,*">
+                <Button Grid.Row="0" Content="Скопировать лог" HorizontalAlignment="Right" Margin="6"
+                        Command="{Binding CopyLogCommand}" />
+                <ScrollViewer Grid.Row="1">
+                    <ItemsControl ItemsSource="{Binding Log}" Margin="8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                           TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
         </Border>
 
         <TextBlock Grid.Row="2" TextWrapping="Wrap" Foreground="#808080" FontSize="11"

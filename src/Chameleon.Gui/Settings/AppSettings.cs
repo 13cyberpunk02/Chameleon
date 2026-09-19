@@ -13,15 +13,23 @@ public sealed class AppSettings
     public string Socks { get; set; } = "127.0.0.1:1080";
     public string Tun2SocksPath { get; set; } = "";
     public string LogLevel { get; set; } = "error";
+    public bool AutoConnect { get; set; } = false;
 
     private static string Path => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Chameleon", "settings.json");
 
     public static AppSettings Load()
     {
-        try { if (File.Exists(Path)) return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path)) ?? new(); }
-        catch { }
-        return new();
+        try
+        {
+            if (File.Exists(Path)) return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path)) ?? new();
+        }
+        catch
+        {
+            // ignored
+        }
+
+        return new AppSettings();
     }
 
     public void Save()
