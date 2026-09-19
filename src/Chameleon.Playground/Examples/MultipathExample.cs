@@ -10,14 +10,13 @@ public static class MultipathExample
 {
     public static async Task RunAsync()
     {
-        byte[] secret = RandomNumberGenerator.GetBytes(KeySchedule.SecretSize);
         var (cA, sA) = DuplexStream.CreatePair();
         var (cB, sB) = DuplexStream.CreatePair();
 
-        RecordChannel Ch(Stream s, uint id, bool client) => new(s, KeySchedule.ForCarrier(secret, id, client));
+        static FrameChannel Ch(Stream s) => new(s);
 
-        await using var server = ChameleonSession.Start(Ch(sA, 1, false), isClient: false);
-        server.AddCarrier(Ch(sB, 2, false));
+        await using var server = ChameleonSession.Start(Ch(sA), isClient: false);
+        server.AddCarrier(Ch(sB));
 
         var received = new MemoryStream();
         var done = new TaskCompletionSource();
@@ -34,8 +33,8 @@ public static class MultipathExample
             done.TrySetResult();
         });
 
-        await using var client = ChameleonSession.Start(Ch(cA, 1, true), isClient: true);
-        client.AddCarrier(Ch(cB, 2, true));
+        await using var client = ChameleonSession.Start(Ch(cA), isClient: true);
+        client.AddCarrier(Ch(cB));
         Console.WriteLine($"несущих: клиент={client.CarrierCount}, сервер={server.CarrierCount}");
 
         byte[] payload = RandomNumberGenerator.GetBytes(400_000);
