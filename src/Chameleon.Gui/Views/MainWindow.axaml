@@ -31,6 +31,15 @@
                          Text="{Binding Tun2SocksPath}" />
             </Grid>
 
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2">
+                <Button Content="Вставить из буфера" Command="{Binding PasteLinkCommand}"
+                        ToolTip.Tip="Вставить chameleon://... из буфера обмена - поля заполнятся сами" />
+                <Button Content="Скопировать ссылку" Command="{Binding CopyLinkCommand}"
+                        ToolTip.Tip="Скопировать текущий профиль как chameleon://... для шаринга" />
+                <TextBlock Text="{Binding ProfileName}" VerticalAlignment="Center" FontStyle="Italic"
+                           Foreground="#808080" />
+            </StackPanel>
+
             <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4">
                 <Button Content="Подключить" Width="140"
                         Command="{Binding ConnectCommand}" />

@@ -2,6 +2,7 @@
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
+using Chameleon.Core.Proxy;
 using Chameleon.Gui.Settings;
 using Chameleon.Tunnel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -31,12 +32,79 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private string _socks = "";
     [ObservableProperty] private string _tun2SocksPath = "";
     [ObservableProperty] private string _logLevel = "error";
+    [ObservableProperty] private string _profileName = "";
 
     [ObservableProperty] private string _status = "Отключено";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _isConnected;
 
     public ObservableCollection<string> Log { get; } = new();
+
+    /// <summary>Функции доступа к буферу обмена (устанавливает View).</summary>
+    public Func<Task<string?>>? GetClipboard { get; set; }
+
+    public Func<string, Task>? SetClipboard { get; set; }
+
+    [RelayCommand]
+    private async Task PasteLinkAsync()
+    {
+        try
+        {
+            string? text = GetClipboard is null ? null : await GetClipboard();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                AppendLog("Буфер обмена пуст");
+                return;
+            }
+
+            if (!ChameleonLink.TryParse(text, out var link, out string? err) || link is null)
+            {
+                AppendLog("Не ссылка chameleon://: " + err);
+                return;
+            }
+
+            Server = $"{link.Host}:{link.Port}";
+            ServerKey = link.ServerPublicKeyHex;
+            Sni = link.Sni;
+            ProfileName = link.Name ?? "";
+            AppendLog($"Профиль вставлен из ссылки: {(string.IsNullOrEmpty(ProfileName) ? Server : ProfileName)}");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Ошибка вставки: " + ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private async Task CopyLinkAsync()
+    {
+        try
+        {
+            int i = Server.LastIndexOf(':');
+            if (i <= 0)
+            {
+                AppendLog("Заполните адрес сервера host:port");
+                return;
+            }
+
+            string host = Server[..i];
+            if (!int.TryParse(Server[(i + 1)..], out int port))
+            {
+                AppendLog("Неверный порт в адресе");
+                return;
+            }
+
+            var link = new ChameleonLink(host, port, ServerKey.Trim(),
+                string.IsNullOrWhiteSpace(Sni) ? host : Sni.Trim(),
+                [], string.IsNullOrWhiteSpace(ProfileName) ? null : ProfileName.Trim());
+            if (SetClipboard is not null) await SetClipboard(link.Build());
+            AppendLog("Ссылка скопирована в буфер обмена");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Ошибка копирования: " + ex.Message);
+        }
+    }
 
     private bool CanConnect => !IsBusy && !IsConnected;
     private bool CanDisconnect => !IsBusy && IsConnected;

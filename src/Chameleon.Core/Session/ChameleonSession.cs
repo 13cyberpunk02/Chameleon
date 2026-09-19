@@ -131,11 +131,9 @@ public sealed class ChameleonSession : IAsyncDisposable
             int length = build(scratch);
             length = Pad(scratch, length);
 
-            // Достаём номер пакета из уже собранного плейнтекста (varint в начале).
             VarInt.TryRead(scratch, out ulong pn, out _);
             byte[] plaintext = scratch[..length].ToArray();
 
-            // Окно перегрузки: ждём место под пакет (не флудим канал).
             await _cc.AcquireAsync(cancellationToken).ConfigureAwait(false);
             _unacked[pn] = new InFlight(plaintext, length, Environment.TickCount64, Retransmitted: false);
 
@@ -167,7 +165,6 @@ public sealed class ChameleonSession : IAsyncDisposable
                 c.Alive = false;
             }
         }
-        // ни одной живой несущей - молча, RTO повторит, когда/если несущая появится
     }
 
     private int Pad(byte[] buffer, int length)
@@ -183,7 +180,6 @@ public sealed class ChameleonSession : IAsyncDisposable
         return length;
     }
 
-    // --- надёжность: ретрансмиты и ACK ---
 
     private async Task RetransmitLoopAsync(CancellationToken cancellationToken)
     {
@@ -203,7 +199,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                     await SendOnAnyAsync(f.Plaintext, f.Length, cancellationToken).ConfigureAwait(false);
                 }
 
-                if (loss) _cc.OnLoss(); // откат окна при таймауте
+                if (loss) _cc.OnLoss();
             }
         }
         catch (OperationCanceledException)
@@ -290,16 +286,21 @@ public sealed class ChameleonSession : IAsyncDisposable
     {
         lock (_receivedLock)
         {
-            ulong[] arr = [.. _received];
-            var runs = new List<(ulong Lo, ulong Hi)>();
-            ulong lo = arr[0], hi = arr[0];
-            for (int i = 1; i < arr.Length; i++)
+            var runs = new List<(ulong Lo, ulong Hi)>(4);
+            bool started = false;
+            ulong lo = 0, hi = 0;
+            foreach (ulong pn in _received)
             {
-                if (arr[i] == hi + 1) hi = arr[i];
+                if (!started)
+                {
+                    lo = hi = pn;
+                    started = true;
+                }
+                else if (pn == hi + 1) hi = pn;
                 else
                 {
                     runs.Add((lo, hi));
-                    lo = hi = arr[i];
+                    lo = hi = pn;
                 }
             }
 
@@ -318,6 +319,7 @@ public sealed class ChameleonSession : IAsyncDisposable
             return (largest, firstRange, ranges);
         }
     }
+
 
     private async Task ReceiveLoopAsync(Carrier carrier, CancellationToken cancellationToken)
     {
