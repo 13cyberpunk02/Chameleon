@@ -25,6 +25,9 @@ public sealed class ChameleonClient : IAsyncDisposable
 
     public IPEndPoint SocksEndPoint => (IPEndPoint)_socksListener.LocalEndpoint;
     public int CarrierCount => _session.CarrierCount;
+    public long BytesSent => _session.BytesSent;
+    public long BytesReceived => _session.BytesReceived;
+    public int RttMs => _session.RttMs;
 
     public static async Task<ChameleonClient> StartAsync(
         IPEndPoint serverEndPoint, KeyPair clientStatic, byte[] serverStaticPublic,

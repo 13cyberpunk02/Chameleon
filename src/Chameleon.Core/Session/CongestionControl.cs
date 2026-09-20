@@ -13,12 +13,12 @@
 /// RTO - по RFC 6298 (SRTT + 4·RTTVAR), с алгоритмом Карна (RTT только по
 /// пакетам без ретрансмита).
 /// </summary>
-public sealed class CongestionControl(int initialCwnd = 16)
+public sealed class CongestionControl
 {
     private readonly object _lock = new();
     private readonly SemaphoreSlim _signal = new(0, int.MaxValue);
 
-    private double _cwnd = initialCwnd;
+    private double _cwnd;
     private double _ssthresh = double.MaxValue;
     private long _inFlight;
 
@@ -26,11 +26,22 @@ public sealed class CongestionControl(int initialCwnd = 16)
     private double _rttVar;
 
     public int MinCwnd { get; init; } = 4;
-    public int MaxCwnd { get; init; } = 4096; // потолок «в полёте» (защита памяти)
+    public int MaxCwnd { get; init; } = 4096;
     public int MinRtoMs { get; init; } = 100;
     public int MaxRtoMs { get; init; } = 10_000;
 
+    public CongestionControl(int initialCwnd = 16) => _cwnd = initialCwnd;
+
     public int RtoMs { get; private set; } = 300;
+
+    /// <summary>Сглаженный RTT (мс), 0 пока нет измерений.</summary>
+    public int SmoothedRttMs
+    {
+        get
+        {
+            lock (_lock) return _srtt < 0 ? 0 : (int)_srtt;
+        }
+    }
 
     public double Cwnd
     {
@@ -67,10 +78,10 @@ public sealed class CongestionControl(int initialCwnd = 16)
         {
             if (_inFlight > 0) _inFlight--;
 
-            if (!wasRetransmitted && rttSampleMs >= 0) UpdateRtt(rttSampleMs); // Карн: не по ретрансмитам
+            if (!wasRetransmitted && rttSampleMs >= 0) UpdateRtt(rttSampleMs);
 
-            if (_cwnd < _ssthresh) _cwnd += 1; // медленный старт
-            else _cwnd += 1.0 / _cwnd; // избегание перегрузки
+            if (_cwnd < _ssthresh) _cwnd += 1;
+            else _cwnd += 1.0 / _cwnd;
             if (_cwnd > MaxCwnd) _cwnd = MaxCwnd;
         }
 

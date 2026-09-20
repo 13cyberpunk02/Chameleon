@@ -42,6 +42,8 @@ public sealed class ChameleonSession : IAsyncDisposable
     private long _nextPacketNumber;
     private long _nextStreamId;
     private long _lastSendTicks;
+    private long _bytesSent;
+    private long _bytesReceived;
     private readonly CongestionControl _cc = new();
     private int _ackPending;
     private Carrier? _ackVia;
@@ -63,6 +65,9 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     public Action<ChameleonStream>? StreamAccepted { get; set; }
     public int CarrierCount => _carriers.Count(c => c.Alive);
+    public long BytesSent => Interlocked.Read(ref _bytesSent);
+    public long BytesReceived => Interlocked.Read(ref _bytesReceived);
+    public int RttMs => _cc.SmoothedRttMs;
 
     public static ChameleonSession Start(ICarrierChannel channel, bool isClient, TrafficShaper? shaper = null)
     {
@@ -84,7 +89,6 @@ public sealed class ChameleonSession : IAsyncDisposable
     }
 
     private void StartCarrierLoop(Carrier c) => c.Loop = Task.Run(() => ReceiveLoopAsync(c, _cts.Token));
-
 
     public async ValueTask<ChameleonStream> OpenStreamAsync(
         string host, int port, StreamKind kind = StreamKind.Tcp, CancellationToken cancellationToken = default)
@@ -157,6 +161,7 @@ public sealed class ChameleonSession : IAsyncDisposable
             {
                 await c.Channel.WriteRecordAsync(plaintext.AsMemory(0, length), cancellationToken)
                     .ConfigureAwait(false);
+                Interlocked.Add(ref _bytesSent, length);
                 Interlocked.Exchange(ref _lastSendTicks, Environment.TickCount64);
                 return;
             }
@@ -179,7 +184,6 @@ public sealed class ChameleonSession : IAsyncDisposable
 
         return length;
     }
-
 
     private async Task RetransmitLoopAsync(CancellationToken cancellationToken)
     {
@@ -237,7 +241,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         long now = Environment.TickCount64;
         foreach (ulong pn in AckedPacketNumbers(ack))
             if (_unacked.TryRemove(pn, out var f))
-                _cc.OnAck((int)(now - f.SentTicks), f.Retransmitted); // окно растёт, RTT по Карну
+                _cc.OnAck((int)(now - f.SentTicks), f.Retransmitted);
     }
 
     private static IEnumerable<ulong> AckedPacketNumbers(AckFrame ack)
@@ -264,6 +268,7 @@ public sealed class ChameleonSession : IAsyncDisposable
             length = Pad(buffer, length);
             if (via.Alive)
                 await via.Channel.WriteRecordAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+            Interlocked.Add(ref _bytesSent, length);
         }
         catch (Exception)
         {
@@ -320,7 +325,6 @@ public sealed class ChameleonSession : IAsyncDisposable
         }
     }
 
-
     private async Task ReceiveLoopAsync(Carrier carrier, CancellationToken cancellationToken)
     {
         byte[] buffer = new byte[Crypto.RecordFormat.MaxPlaintext];
@@ -331,6 +335,7 @@ public sealed class ChameleonSession : IAsyncDisposable
             {
                 int n = await carrier.Channel.ReadRecordAsync(buffer, cancellationToken).ConfigureAwait(false);
                 if (n < 0) break;
+                Interlocked.Add(ref _bytesReceived, n);
 
                 frames.Clear();
                 ulong pn = PacketReader.Parse(buffer.AsMemory(0, n), frames);

@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.ObjectModel;
-using System.Threading;
-using System.Threading.Tasks;
+﻿using System.Collections.ObjectModel;
 using Chameleon.Core.Proxy;
 using Chameleon.Gui.Settings;
 using Chameleon.Tunnel;
@@ -12,19 +9,21 @@ namespace Chameleon.Gui.ViewModels;
 
 public partial class MainWindowViewModel : ViewModelBase
 {
-    private readonly AppSettings _settings = AppSettings.Load();
+    private readonly ProfileStore _store = ProfileStore.Load();
+    public System.Collections.ObjectModel.ObservableCollection<ServerProfile> Profiles { get; } = new();
     private TunnelService? _service;
     private CancellationTokenSource? _cts;
 
     public MainWindowViewModel()
     {
-        Server = _settings.Server;
-        ServerKey = _settings.ServerPublicKeyHex;
-        Sni = _settings.Sni;
-        Socks = _settings.Socks;
-        Tun2SocksPath = _settings.Tun2SocksPath;
-        LogLevel = _settings.LogLevel;
-        AutoConnect = _settings.AutoConnect;
+        Socks = _store.Socks;
+        Tun2SocksPath = _store.Tun2SocksPath;
+        LogLevel = _store.LogLevel;
+        AutoConnect = _store.AutoConnect;
+        AutoStart = AutoStartManager.IsEnabled();
+
+        foreach (var p in _store.Profiles) Profiles.Add(p);
+        SelectedProfile = _store.Selected ?? Profiles.FirstOrDefault();
 
         if (string.IsNullOrWhiteSpace(Tun2SocksPath))
         {
@@ -45,10 +44,38 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private string _logLevel = "error";
     [ObservableProperty] private string _profileName = "";
     [ObservableProperty] private bool _autoConnect;
+    [ObservableProperty] private bool _autoStart;
+    [ObservableProperty] private ServerProfile? _selectedProfile;
+
+    partial void OnSelectedProfileChanged(ServerProfile? value)
+    {
+        if (value is null)
+        {
+            Server = ServerKey = "";
+            ProfileName = "";
+            return;
+        }
+
+        Server = value.Server;
+        ServerKey = value.ServerPublicKeyHex;
+        Sni = value.Sni;
+        ProfileName = value.Name;
+        _store.SelectedIndex = Profiles.IndexOf(value);
+        SaveSettings();
+    }
 
     [ObservableProperty] private string _status = "Отключено";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _isConnected;
+
+    [ObservableProperty] private string _publicIp = "-";
+    [ObservableProperty] private string _rtt = "-";
+    [ObservableProperty] private string _traffic = "-";
+    [ObservableProperty] private string _carriers = "-";
+    [ObservableProperty] private string _uptime = "-";
+    private DateTime _connectedAt;
+    private ChameleonClient? _client;
+    private Timer? _statusTimer;
 
     public ObservableCollection<string> Log { get; } = new();
 
@@ -80,7 +107,7 @@ public partial class MainWindowViewModel : ViewModelBase
         AppendLog("Лог скопирован в буфер обмена");
     }
 
-    /// <summary>Вызывается View после загрузки окна: автоподключение, если включено.</summary>
+    /// <summary>Вызывается View после загрузки окна: авто подключение, если включено.</summary>
     public async Task TryAutoConnectAsync()
     {
         if (AutoConnect && !IsConnected && !IsBusy
@@ -89,6 +116,44 @@ public partial class MainWindowViewModel : ViewModelBase
             AppendLog("Автоподключение…");
             await ConnectAsync();
         }
+    }
+
+    [RelayCommand]
+    private async Task AddProfileAsync()
+    {
+        try
+        {
+            string? text = GetClipboard is null ? null : await GetClipboard();
+            if (!ChameleonLink.TryParse(text, out var link, out string? err) || link is null)
+            {
+                AppendLog("В буфере нет ссылки chameleon://: " + err);
+                return;
+            }
+
+            var profile = ServerProfile.FromLink(link);
+            Profiles.Add(profile);
+            _store.Profiles.Add(profile);
+            SelectedProfile = profile;
+            SaveSettings();
+            AppendLog($"Профиль добавлен: {profile.Display}");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Ошибка добавления: " + ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveProfile()
+    {
+        if (SelectedProfile is null) return;
+        string name = SelectedProfile.Display;
+        int idx = Profiles.IndexOf(SelectedProfile);
+        _store.Profiles.Remove(SelectedProfile);
+        Profiles.Remove(SelectedProfile);
+        SelectedProfile = Profiles.Count > 0 ? Profiles[Math.Min(idx, Profiles.Count - 1)] : null;
+        SaveSettings();
+        AppendLog($"Профиль удалён: {name}");
     }
 
     [RelayCommand]
@@ -182,8 +247,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
             _cts = new CancellationTokenSource();
             await _service.ConnectAsync(options, _cts.Token);
+            _client = _service.Client;
+            _connectedAt = DateTime.Now;
             IsConnected = true;
             AppendLog("Готово: весь трафик идёт через туннель.");
+            StartStatusPolling();
         }
         catch (Exception ex)
         {
@@ -211,6 +279,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task SafeDisconnectAsync()
     {
+        StopStatusPolling();
         try
         {
             _cts?.Cancel();
@@ -223,7 +292,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _service = null;
         _cts = null;
+        _client = null;
         IsConnected = false;
+        PublicIp = "-";
+        Rtt = "-";
+        Traffic = "-";
+        Carriers = "-";
+        Uptime = "-";
         if (Status != "Ошибка") Status = "Отключено";
     }
 
@@ -233,9 +308,64 @@ public partial class MainWindowViewModel : ViewModelBase
         DisconnectCommand.NotifyCanExecuteChanged();
     }
 
+    private void StartStatusPolling()
+    {
+        _statusTimer = new Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStatus), null, 0, 1000);
+        _ = RefreshPublicIpAsync();
+    }
+
+    private void StopStatusPolling()
+    {
+        _statusTimer?.Dispose();
+        _statusTimer = null;
+    }
+
+    private void UpdateStatus()
+    {
+        if (_client is null) return;
+        Rtt = _client.RttMs > 0 ? $"{_client.RttMs} мс" : "-";
+        Carriers = _client.CarrierCount.ToString();
+        Traffic = $"↑ {Human(_client.BytesSent)}   ↓ {Human(_client.BytesReceived)}";
+        var t = DateTime.Now - _connectedAt;
+        Uptime = t.TotalHours >= 1
+            ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}"
+            : $"{t.Minutes:00}:{t.Seconds:00}";
+    }
+
+    private async Task RefreshPublicIpAsync()
+    {
+        try
+        {
+            int i = Socks.LastIndexOf(':');
+            if (i <= 0) return;
+            var handler = new HttpClientHandler
+                { Proxy = new System.Net.WebProxy($"socks5://{Socks}"), UseProxy = true };
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
+            string ip = (await http.GetStringAsync("https://api.ipify.org")).Trim();
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => PublicIp = ip);
+        }
+        catch
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => PublicIp = "не удалось определить");
+        }
+    }
+
+    private static string Human(long bytes)
+    {
+        string[] u = { "Б", "КБ", "МБ", "ГБ", "ТБ" };
+        double v = bytes;
+        int k = 0;
+        while (v >= 1024 && k < u.Length - 1)
+        {
+            v /= 1024;
+            k++;
+        }
+
+        return $"{v:0.#} {u[k]}";
+    }
+
     private void AppendLog(string message)
     {
-        // из фонового потока - в UI-поток
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             Log.Add($"{DateTime.Now:HH:mm:ss}  {message}");
@@ -245,14 +375,19 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void SaveSettings()
     {
-        _settings.Server = Server;
-        _settings.ServerPublicKeyHex = ServerKey;
-        _settings.Sni = Sni;
-        _settings.Socks = Socks;
-        _settings.Tun2SocksPath = Tun2SocksPath;
-        _settings.LogLevel = LogLevel;
-        _settings.AutoConnect = AutoConnect;
-        _settings.Save();
+        _store.Socks = Socks;
+        _store.Tun2SocksPath = Tun2SocksPath;
+        _store.LogLevel = LogLevel;
+        _store.AutoConnect = AutoConnect;
+        if (SelectedProfile is { } p)
+        {
+            p.Server = Server;
+            p.ServerPublicKeyHex = ServerKey;
+            p.Sni = Sni;
+            p.Name = ProfileName;
+        }
+
+        _store.Save();
     }
 
     private static string Localize(TunnelStatus s) => s switch
@@ -262,6 +397,19 @@ public partial class MainWindowViewModel : ViewModelBase
         TunnelStatus.Error => "Ошибка",
         _ => "Отключено",
     };
+
+    partial void OnAutoStartChanged(bool value)
+    {
+        try
+        {
+            AutoStartManager.Set(value);
+            AppendLog(value ? "Автозапуск включён" : "Автозапуск выключен");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Автозапуск: " + ex.Message);
+        }
+    }
 
     partial void OnIsBusyChanged(bool value) => UpdateCommands();
     partial void OnIsConnectedChanged(bool value) => UpdateCommands();

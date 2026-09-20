@@ -11,13 +11,27 @@
         <!-- Настройки подключения -->
         <StackPanel Grid.Row="0" Spacing="8">
             <TextBlock Text="Chameleon" FontSize="22" FontWeight="Bold" />
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="Профиль:" VerticalAlignment="Center" />
+                <ComboBox MinWidth="220" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Display}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Content="Добавить из ссылки" Command="{Binding AddProfileCommand}"
+                        ToolTip.Tip="Добавить профиль из chameleon://... в буфере обмена" />
+                <Button Content="Удалить" Command="{Binding RemoveProfileCommand}" />
+            </StackPanel>
             <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Сервер" VerticalAlignment="Center" />
-                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,3" Watermark="dl.example.com:443"
+                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,3" PlaceholderText="dl.example.com:443"
                          Text="{Binding Server}" />
 
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Ключ сервера" VerticalAlignment="Center" />
-                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,3" Watermark="публичный ключ (hex)"
+                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,3" PlaceholderText="публичный ключ (hex)"
                          Text="{Binding ServerKey}" />
 
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="SNI" VerticalAlignment="Center" />
@@ -28,7 +42,7 @@
 
                 <TextBlock Grid.Row="4" Grid.Column="0" Text="tun2socks" VerticalAlignment="Center" />
                 <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,3">
-                    <TextBox Grid.Column="0" Watermark="путь к tun2socks.exe (рядом wintun.dll)"
+                    <TextBox Grid.Column="0" PlaceholderText="путь к tun2socks.exe (рядом wintun.dll)"
                              Text="{Binding Tun2SocksPath}" />
                     <Button Grid.Column="1" Content="Обзор…" Margin="6,0,0,0"
                             Command="{Binding BrowseTun2SocksCommand}" />
@@ -42,8 +56,10 @@
                         ToolTip.Tip="Скопировать текущий профиль как chameleon://... для шаринга" />
                 <TextBlock Text="{Binding ProfileName}" VerticalAlignment="Center" FontStyle="Italic"
                            Foreground="#808080" />
-                <CheckBox Content="Автоподключение" IsChecked="{Binding AutoConnect}"
+                <CheckBox Content="Авто подключение" IsChecked="{Binding AutoConnect}"
                           ToolTip.Tip="Подключаться автоматически при запуске" />
+                <CheckBox Content="Автозапуск с Windows" IsChecked="{Binding AutoStart}"
+                          ToolTip.Tip="Запускать Chameleon при входе в систему (только Windows)" />
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4">
@@ -53,6 +69,26 @@
                         Command="{Binding DisconnectCommand}" />
                 <TextBlock Text="{Binding Status}" VerticalAlignment="Center" FontWeight="SemiBold" />
             </StackPanel>
+
+            <!-- Статус-панель (заполняется при подключении) -->
+            <Border BorderBrush="#40808080" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,6"
+                    IsVisible="{Binding IsConnected}">
+                <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto,Auto">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="IP:" Margin="0,2,8,2" Foreground="#808080" />
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PublicIp}" Margin="0,2"
+                               FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="RTT:" Margin="12,2,8,2" Foreground="#808080" />
+                    <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding Rtt}" Margin="0,2" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Трафик:" Margin="0,2,8,2" Foreground="#808080" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding Traffic}" Margin="0,2" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Несущих:" Margin="0,2,8,2" Foreground="#808080" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Carriers}" Margin="0,2" />
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Время:" Margin="12,2,8,2" Foreground="#808080" />
+                    <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding Uptime}" Margin="0,2" />
+                </Grid>
+            </Border>
         </StackPanel>
 
         <!-- Лог -->

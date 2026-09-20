@@ -19,7 +19,11 @@ public sealed class TunnelService : IAsyncDisposable
 {
     private readonly IPlatformNet _net;
     private ChameleonClient? _client;
-    private Process? _tun2socks;
+
+    /// <summary>Активный клиент (для статистики), null пока не подключено.</summary>
+    public ChameleonClient? Client => _client;
+
+    private Process? _tun2Socks;
     private TunnelOptions? _options;
     private string? _serverIp;
     private bool _hostRouteAdded, _defaultRouteAdded;
@@ -48,10 +52,9 @@ public sealed class TunnelService : IAsyncDisposable
             if (OperatingSystem.IsWindows())
             {
                 string wintun = Path.Combine(workDir, "wintun.dll");
-                if (File.Exists(wintun)) Info($"найден wintun.dll: {wintun}");
-                else
-                    Info(
-                        $"ВНИМАНИЕ: рядом с tun2socks нет wintun.dll ({wintun}) - адаптер, скорее всего, не поднимется. Положите wintun.dll той же разрядности в папку с tun2socks.exe.");
+                Info(File.Exists(wintun)
+                    ? $"найден wintun.dll: {wintun}"
+                    : $"ВНИМАНИЕ: рядом с tun2socks нет wintun.dll ({wintun}) - адаптер, скорее всего, не поднимется. Положите wintun.dll той же разрядности в папку с tun2socks.exe.");
             }
 
             IPEndPoint serverEndpoint = await ResolveAsync(options.Server, ct).ConfigureAwait(false);
@@ -77,11 +80,11 @@ public sealed class TunnelService : IAsyncDisposable
 
             string device = OperatingSystem.IsWindows() ? options.TunDeviceName : $"tun://{options.TunDeviceName}";
             string proxy = $"socks5://{socksEndpoint.Address}:{socksEndpoint.Port}";
-            _tun2socks = ProcessRunner.Start(exe,
+            _tun2Socks = ProcessRunner.Start(exe,
                 $"--device {device} --proxy {proxy} --loglevel {options.Tun2SocksLogLevel}", m => Log?.Invoke(this, m),
                 workDir);
             int tunIndex = await WaitForTunAsync(options.TunDeviceName, ct).ConfigureAwait(false);
-            
+
             await _net.ConfigureTunAsync(options, tunIndex, ct).ConfigureAwait(false);
             await _net.AddDefaultViaTunAsync(options, ct).ConfigureAwait(false);
             _defaultRouteAdded = true;
@@ -131,7 +134,7 @@ public sealed class TunnelService : IAsyncDisposable
             }
         }
 
-        if (_tun2socks is { } p)
+        if (_tun2Socks is { } p)
         {
             try
             {
@@ -143,7 +146,7 @@ public sealed class TunnelService : IAsyncDisposable
             }
 
             p.Dispose();
-            _tun2socks = null;
+            _tun2Socks = null;
         }
 
         if (_client is { } c)
@@ -177,7 +180,7 @@ public sealed class TunnelService : IAsyncDisposable
                 return idx;
             }
 
-            if (_tun2socks?.HasExited == true)
+            if (_tun2Socks?.HasExited == true)
                 throw new InvalidOperationException("tun2socks завершился преждевременно");
             await Task.Delay(100, ct).ConfigureAwait(false);
         }
