@@ -48,6 +48,11 @@ public sealed class ChameleonSession : IAsyncDisposable
     private int _ackPending;
     private Carrier? _ackVia;
     private Task? _ackLoop;
+    private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Завершается, когда все несущие сессии закрылись (клиент отключился).</summary>
+    public Task Completion => _completed.Task;
+
     private int _rrIndex;
     private Task? _coverLoop;
     private Task? _rtoLoop;
@@ -89,6 +94,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     }
 
     private void StartCarrierLoop(Carrier c) => c.Loop = Task.Run(() => ReceiveLoopAsync(c, _cts.Token));
+
 
     public async ValueTask<ChameleonStream> OpenStreamAsync(
         string host, int port, StreamKind kind = StreamKind.Tcp, CancellationToken cancellationToken = default)
@@ -185,6 +191,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         return length;
     }
 
+
     private async Task RetransmitLoopAsync(CancellationToken cancellationToken)
     {
         try
@@ -203,7 +210,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                     await SendOnAnyAsync(f.Plaintext, f.Length, cancellationToken).ConfigureAwait(false);
                 }
 
-                if (loss) _cc.OnLoss();
+                if (loss) _cc.OnLoss(); 
             }
         }
         catch (OperationCanceledException)
@@ -378,6 +385,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         finally
         {
             carrier.Alive = false;
+            if (_carriers.All(c => !c.Alive)) _completed.TrySetResult();
         }
     }
 
@@ -421,7 +429,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                 try
                 {
                     int length = BuildCover(buffer, NextPacketNumber(), size);
-                    await SendOnAnyAsync(buffer[..length].ToArray(), length, cancellationToken).ConfigureAwait(false);
+                    await SendOnAnyAsync([.. buffer[..length]], length, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {

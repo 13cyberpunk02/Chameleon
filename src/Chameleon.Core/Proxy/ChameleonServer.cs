@@ -90,7 +90,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             byte[] prefix = new byte[2];
             if (!await ReadRecordingAsync(carrier, prefix, buffered, hs.Token).ConfigureAwait(false))
             {
-                await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
+                await Cover(carrier, [.. buffered], cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -131,7 +131,6 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         byte[] message1 = await Framing.ReadExactCountAsync(carrier, len, cancellationToken).ConfigureAwait(false);
         var handshake = NoiseIkHandshake.CreateResponder(_serverStatic);
-        HandshakeResult result;
         try
         {
             handshake.ReadMessage1(message1);
@@ -142,7 +141,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             return;
         }
 
-        result = handshake.WriteMessage2(out byte[] message2);
+        var result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
 
         var channel = new FrameChannel(carrier);
@@ -151,6 +150,19 @@ public sealed class ChameleonServer : IAsyncDisposable
 
         string sessionId = Convert.ToHexString(CarrierJoin.SessionId(result.SessionSecret));
         _sessions[sessionId] = new Registered(session, result.SessionSecret);
+        
+        try
+        {
+            await session.Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _sessions.TryRemove(sessionId, out _);
+            await session.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     private async Task HandleJoinAsync(Stream carrier, CancellationToken cancellationToken)
