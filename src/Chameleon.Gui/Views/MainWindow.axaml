@@ -3,113 +3,37 @@
         xmlns:vm="using:Chameleon.Gui.ViewModels"
         x:Class="Chameleon.Gui.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Width="640" Height="560" MinWidth="560" MinHeight="480"
+        Width="900" Height="600" MinWidth="720" MinHeight="480"
         Title="Chameleon" WindowStartupLocation="CenterScreen">
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <Grid ColumnDefinitions="220,*">
 
-        <!-- Настройки подключения -->
-        <StackPanel Grid.Row="0" Spacing="8">
-            <TextBlock Text="Chameleon" FontSize="22" FontWeight="Bold" />
+        <Border Grid.Column="0" Background="#0C000000">
+            <DockPanel Margin="0,14">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="18,4,0,16" Spacing="10">
+                    <TextBlock Text="🦎" FontSize="22" VerticalAlignment="Center" />
+                    <TextBlock Text="Chameleon" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
+                </StackPanel>
 
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="Профиль:" VerticalAlignment="Center" />
-                <ComboBox MinWidth="220" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Display}" />
+                <ItemsControl ItemsSource="{Binding Pages}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PageViewModel">
+                            <Button Classes="nav"
+                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).NavigateCommand}"
+                                    CommandParameter="{Binding}">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Text="{Binding Icon}" FontSize="16" Width="22" TextAlignment="Center" />
+                                    <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
                         </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-                <Button Content="Добавить из ссылки" Command="{Binding AddProfileCommand}"
-                        ToolTip.Tip="Добавить профиль из chameleon://... в буфере обмена" />
-                <Button Content="Удалить" Command="{Binding RemoveProfileCommand}" />
-            </StackPanel>
-            <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Сервер" VerticalAlignment="Center" />
-                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,3" PlaceholderText="dl.example.com:443"
-                         Text="{Binding Server}" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Ключ сервера" VerticalAlignment="Center" />
-                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,3" PlaceholderText="публичный ключ (hex)"
-                         Text="{Binding ServerKey}" />
-
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="SNI" VerticalAlignment="Center" />
-                <TextBox Grid.Row="2" Grid.Column="1" Margin="0,3" Text="{Binding Sni}" />
-
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="SOCKS" VerticalAlignment="Center" />
-                <TextBox Grid.Row="3" Grid.Column="1" Margin="0,3" Text="{Binding Socks}" />
-
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="tun2socks" VerticalAlignment="Center" />
-                <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,3">
-                    <TextBox Grid.Column="0" PlaceholderText="путь к tun2socks.exe (рядом wintun.dll)"
-                             Text="{Binding Tun2SocksPath}" />
-                    <Button Grid.Column="1" Content="Обзор…" Margin="6,0,0,0"
-                            Command="{Binding BrowseTun2SocksCommand}" />
-                </Grid>
-            </Grid>
-
-            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2">
-                <Button Content="Вставить из буфера" Command="{Binding PasteLinkCommand}"
-                        ToolTip.Tip="Вставить chameleon://... из буфера обмена - поля заполнятся сами" />
-                <Button Content="Скопировать ссылку" Command="{Binding CopyLinkCommand}"
-                        ToolTip.Tip="Скопировать текущий профиль как chameleon://... для шаринга" />
-                <TextBlock Text="{Binding ProfileName}" VerticalAlignment="Center" FontStyle="Italic"
-                           Foreground="#808080" />
-                <CheckBox Content="Авто подключение" IsChecked="{Binding AutoConnect}"
-                          ToolTip.Tip="Подключаться автоматически при запуске" />
-                <CheckBox Content="Автозапуск с Windows" IsChecked="{Binding AutoStart}"
-                          ToolTip.Tip="Запускать Chameleon при входе в систему (только Windows)" />
-            </StackPanel>
-
-            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4">
-                <Button Content="Подключить" Width="140"
-                        Command="{Binding ConnectCommand}" />
-                <Button Content="Отключить" Width="140"
-                        Command="{Binding DisconnectCommand}" />
-                <TextBlock Text="{Binding Status}" VerticalAlignment="Center" FontWeight="SemiBold" />
-            </StackPanel>
-
-            <!-- Статус-панель (заполняется при подключении) -->
-            <Border BorderBrush="#40808080" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,6"
-                    IsVisible="{Binding IsConnected}">
-                <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto,Auto">
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="IP:" Margin="0,2,8,2" Foreground="#808080" />
-                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PublicIp}" Margin="0,2"
-                               FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="0" Grid.Column="2" Text="RTT:" Margin="12,2,8,2" Foreground="#808080" />
-                    <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding Rtt}" Margin="0,2" />
-
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Трафик:" Margin="0,2,8,2" Foreground="#808080" />
-                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding Traffic}" Margin="0,2" />
-
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Несущих:" Margin="0,2,8,2" Foreground="#808080" />
-                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Carriers}" Margin="0,2" />
-                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Время:" Margin="12,2,8,2" Foreground="#808080" />
-                    <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding Uptime}" Margin="0,2" />
-                </Grid>
-            </Border>
-        </StackPanel>
-
-        <!-- Лог -->
-        <Border Grid.Row="1" Margin="0,12" BorderBrush="#40808080" BorderThickness="1" CornerRadius="6">
-            <Grid RowDefinitions="Auto,*">
-                <Button Grid.Row="0" Content="Скопировать лог" HorizontalAlignment="Right" Margin="6"
-                        Command="{Binding CopyLogCommand}" />
-                <ScrollViewer Grid.Row="1">
-                    <ItemsControl ItemsSource="{Binding Log}" Margin="8">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" FontFamily="Consolas,Menlo,monospace" FontSize="12"
-                                           TextWrapping="Wrap" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-            </Grid>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </DockPanel>
         </Border>
 
-        <TextBlock Grid.Row="2" TextWrapping="Wrap" Foreground="#808080" FontSize="11"
-                   Text="Требуются права администратора. tun2socks и wintun.dll должны лежать в одной папке. Весь трафик (TCP и UDP) идёт через туннель." />
+        <ScrollViewer Grid.Column="1" Padding="24">
+            <ContentControl Content="{Binding Current}" />
+        </ScrollViewer>
     </Grid>
 </Window>

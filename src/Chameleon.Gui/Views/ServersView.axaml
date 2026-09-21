@@ -1,0 +1,43 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Chameleon.Gui.ViewModels"
+             x:Class="Chameleon.Gui.Views.ServersView"
+             xmlns:proxy="using:Chameleon.Gui"
+             x:DataType="vm:ServersViewModel">
+    <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="Серверы" FontSize="22" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock DockPanel.Dock="Top" Text="Выбранный профиль используется для подключения"
+                   Foreground="#8B949E" FontSize="13" Margin="0,0,0,14" />
+
+        <!-- Панель действий -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,12">
+            <Button Content="➕  Добавить из ссылки" Command="{Binding AddFromLinkCommand}"
+                    ToolTip.Tip="Взять chameleon://... из буфера обмена" />
+            <Button Content="🔗  Скопировать ссылку" Command="{Binding CopyLinkCommand}" />
+            <Button Content="🗑  Удалить" Command="{Binding RemoveCommand}" />
+        </StackPanel>
+
+        <!-- Подсказка/статус -->
+        <TextBlock DockPanel.Dock="Bottom" Text="{Binding Hint}" Foreground="#8B949E"
+                   FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap" />
+
+        <!-- Список профилей -->
+        <Border Background="#0CFFFFFF" CornerRadius="10" Padding="4">
+            <ListBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                     Background="Transparent">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="proxy:ServerProfile">
+                        <Grid ColumnDefinitions="*,Auto" Margin="6,8">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="{Binding Display}" FontSize="15" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Server}" FontSize="12" Foreground="#8B949E" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Text="{Binding Sni}" FontSize="11"
+                                       Foreground="#8B949E" VerticalAlignment="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+    </DockPanel>
+</UserControl>

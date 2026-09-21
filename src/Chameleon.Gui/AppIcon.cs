@@ -11,7 +11,7 @@ public static class AppIcon
 
     public static WindowIcon Load()
     {
-        byte[] bytes = System.Convert.FromBase64String(PngBase64);
-        return new WindowIcon(new Bitmap(new System.IO.MemoryStream(bytes)));
+        var bytes = Convert.FromBase64String(PngBase64);
+        return new WindowIcon(new Bitmap(new MemoryStream(bytes)));
     }
 }

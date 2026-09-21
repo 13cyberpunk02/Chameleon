@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Chameleon.Gui.ViewModels"
+             x:Class="Chameleon.Gui.Views.ConnectView"
+             x:DataType="vm:ConnectViewModel">
+    <StackPanel Spacing="24" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="360">
+
+        <TextBlock Text="{Binding ActiveProfile}" HorizontalAlignment="Center"
+                   FontSize="14" Foreground="#8B949E" />
+
+        <Button Command="{Binding ToggleCommand}"
+                Width="180" Height="180" CornerRadius="90"
+                HorizontalAlignment="Center"
+                Background="#12FFFFFF" BorderBrush="{Binding StatusColor}" BorderThickness="4"
+                Cursor="Hand">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="6">
+                <TextBlock Text="⏻" FontSize="52" HorizontalAlignment="Center"
+                           Foreground="{Binding StatusColor}" />
+                <TextBlock Text="{Binding ButtonText}" FontSize="15" HorizontalAlignment="Center" />
+            </StackPanel>
+        </Button>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+            <Ellipse Width="10" Height="10" VerticalAlignment="Center" Fill="{Binding StatusColor}" />
+            <TextBlock Text="{Binding StatusText}" FontSize="16" FontWeight="SemiBold"
+                       Foreground="{Binding StatusColor}" />
+        </StackPanel>
+
+        <Border IsVisible="{Binding IsConnected}"
+                Background="#0CFFFFFF" CornerRadius="12" Padding="18" MinWidth="360">
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="14" ColumnSpacing="24">
+
+                <StackPanel Grid.Row="0" Grid.Column="0">
+                    <TextBlock Text="IP через туннель" Foreground="#8B949E" FontSize="12" />
+                    <TextBlock Text="{Binding PublicIp}" FontSize="15" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="1">
+                    <TextBlock Text="Пинг" Foreground="#8B949E" FontSize="12" />
+                    <TextBlock Text="{Binding Rtt}" FontSize="15" FontWeight="SemiBold" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Grid.Column="0">
+                    <TextBlock Text="Отправлено ↑" Foreground="#8B949E" FontSize="12" />
+                    <TextBlock Text="{Binding TrafficUp}" FontSize="15" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1">
+                    <TextBlock Text="Принято ↓" Foreground="#8B949E" FontSize="12" />
+                    <TextBlock Text="{Binding TrafficDown}" FontSize="15" FontWeight="SemiBold" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Grid.Column="0">
+                    <TextBlock Text="Время сессии" Foreground="#8B949E" FontSize="12" />
+                    <TextBlock Text="{Binding Uptime}" FontSize="15" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel Grid.Row="2" Grid.Column="1">
+                    <TextBlock Text="Несущих" Foreground="#8B949E" FontSize="12" />
+                    <TextBlock Text="{Binding Carriers}" FontSize="15" FontWeight="SemiBold" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </StackPanel>
+</UserControl>

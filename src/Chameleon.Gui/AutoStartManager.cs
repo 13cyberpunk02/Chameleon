@@ -10,7 +10,10 @@ public static class AutoStartManager
 
     public static bool IsSupported => OperatingSystem.IsWindows();
 
-    public static bool IsEnabled() => IsSupported && IsEnabledWindows();
+    public static bool IsEnabled()
+    {
+        return IsSupported && IsEnabledWindows();
+    }
 
     public static void Set(bool enabled)
     {

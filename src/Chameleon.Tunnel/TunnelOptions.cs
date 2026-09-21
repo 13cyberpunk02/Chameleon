@@ -35,6 +35,12 @@ public sealed class TunnelOptions
     /// <summary>Уровень логов tun2socks: debug|info|warn|error|silent. По умолчанию error
     /// (иначе, пока нет UDP, лог засоряется предупреждениями «UDP ASSOCIATE not supported»).</summary>
     public string Tun2SocksLogLevel { get; init; } = "error";
+
+    /// <summary>Сколько раз пытаться переподключиться при обрыве сессии, прежде чем откатить маршруты.</summary>
+    public int ReconnectAttempts { get; init; } = 5;
+
+    /// <summary>Пауза между попытками переподключения, мс.</summary>
+    public int ReconnectDelayMs { get; init; } = 3000;
 }
 
 public enum TunnelStatus
@@ -42,5 +48,6 @@ public enum TunnelStatus
     Disconnected,
     Connecting,
     Connected,
+    Reconnecting,
     Error
 }

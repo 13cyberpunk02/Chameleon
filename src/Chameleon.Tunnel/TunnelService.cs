@@ -23,10 +23,13 @@ public sealed class TunnelService : IAsyncDisposable
     /// <summary>Активный клиент (для статистики), null пока не подключено.</summary>
     public ChameleonClient? Client => _client;
 
-    private Process? _tun2Socks;
+    private Process? _tun2socks;
     private TunnelOptions? _options;
     private string? _serverIp;
     private bool _hostRouteAdded, _defaultRouteAdded;
+    private IPEndPoint? _serverEndpoint, _socksEndpoint;
+    private Task? _watchdog;
+    private CancellationTokenSource? _watchdogCts;
 
     public TunnelService(IPlatformNet? net = null)
     {
@@ -52,25 +55,17 @@ public sealed class TunnelService : IAsyncDisposable
             if (OperatingSystem.IsWindows())
             {
                 string wintun = Path.Combine(workDir, "wintun.dll");
-                Info(File.Exists(wintun)
-                    ? $"найден wintun.dll: {wintun}"
-                    : $"ВНИМАНИЕ: рядом с tun2socks нет wintun.dll ({wintun}) - адаптер, скорее всего, не поднимется. Положите wintun.dll той же разрядности в папку с tun2socks.exe.");
+                if (File.Exists(wintun)) Info($"найден wintun.dll: {wintun}");
+                else
+                    Info(
+                        $"ВНИМАНИЕ: рядом с tun2socks нет wintun.dll ({wintun}) - адаптер, скорее всего, не поднимется. Положите wintun.dll той же разрядности в папку с tun2socks.exe.");
             }
 
-            IPEndPoint serverEndpoint = await ResolveAsync(options.Server, ct).ConfigureAwait(false);
-            _serverIp = serverEndpoint.Address.ToString();
-            IPEndPoint socksEndpoint = ParseLocal(options.SocksListen);
-
-            IPEndPoint[]? extras = options.ExtraCarriers is { Length: > 0 }
-                ? await Task.WhenAll(options.ExtraCarriers
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Select(e => ResolveAsync(e, ct))).ConfigureAwait(false)
-                : null;
-            _client = await ChameleonClient.StartAsync(
-                    serverEndpoint, X25519.GenerateKeyPair(), Convert.FromHexString(options.ServerPublicKeyHex),
-                    socksEndpoint, carrier: BcTlsCarrier.Client(options.Sni), extraCarrierEndpoints: extras,
-                    cancellationToken: ct)
-                .ConfigureAwait(false);
+            _serverEndpoint = await ResolveAsync(options.Server, ct).ConfigureAwait(false);
+            _serverIp = _serverEndpoint.Address.ToString();
+            _socksEndpoint = ParseLocal(options.SocksListen);
+            
+            _client = await StartClientAsync(options, _serverEndpoint, _socksEndpoint, ct).ConfigureAwait(false);
             Info($"клиент поднят, SOCKS5 на {_client.SocksEndPoint}, несущих: {_client.CarrierCount}");
 
             var (gateway, ifIndex) = await _net.GetDefaultRouteAsync(ct).ConfigureAwait(false);
@@ -79,8 +74,8 @@ public sealed class TunnelService : IAsyncDisposable
             _hostRouteAdded = true;
 
             string device = OperatingSystem.IsWindows() ? options.TunDeviceName : $"tun://{options.TunDeviceName}";
-            string proxy = $"socks5://{socksEndpoint.Address}:{socksEndpoint.Port}";
-            _tun2Socks = ProcessRunner.Start(exe,
+            string proxy = $"socks5://{_socksEndpoint!.Address}:{_socksEndpoint.Port}";
+            _tun2socks = ProcessRunner.Start(exe,
                 $"--device {device} --proxy {proxy} --loglevel {options.Tun2SocksLogLevel}", m => Log?.Invoke(this, m),
                 workDir);
             int tunIndex = await WaitForTunAsync(options.TunDeviceName, ct).ConfigureAwait(false);
@@ -91,6 +86,9 @@ public sealed class TunnelService : IAsyncDisposable
 
             SetStatus(TunnelStatus.Connected);
             Info("VPN-режим включён: весь трафик идёт через туннель.");
+
+            _watchdogCts = new CancellationTokenSource();
+            _watchdog = Task.Run(() => WatchdogAsync(_watchdogCts.Token));
         }
         catch (Exception ex)
         {
@@ -102,6 +100,39 @@ public sealed class TunnelService : IAsyncDisposable
     }
 
     public async Task DisconnectAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            _watchdogCts?.Cancel();
+        }
+        catch
+        {
+            // ignored
+        }
+
+        if (_watchdog is not null)
+        {
+            try
+            {
+                await _watchdog.ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignored
+            }
+
+            _watchdog = null;
+        }
+
+        _watchdogCts?.Dispose();
+        _watchdogCts = null;
+
+        await CleanupAsync(ct).ConfigureAwait(false);
+        if (Status != TunnelStatus.Error) SetStatus(TunnelStatus.Disconnected);
+    }
+
+    /// <summary>Снимает маршруты, гасит tun2socks и клиента. Идемпотентно.</summary>
+    private async Task CleanupAsync(CancellationToken ct)
     {
         if (_options is { } o)
         {
@@ -134,7 +165,7 @@ public sealed class TunnelService : IAsyncDisposable
             }
         }
 
-        if (_tun2Socks is { } p)
+        if (_tun2socks is { } p)
         {
             try
             {
@@ -146,7 +177,7 @@ public sealed class TunnelService : IAsyncDisposable
             }
 
             p.Dispose();
-            _tun2Socks = null;
+            _tun2socks = null;
         }
 
         if (_client is { } c)
@@ -162,14 +193,107 @@ public sealed class TunnelService : IAsyncDisposable
 
             _client = null;
         }
+    }
 
-        if (Status != TunnelStatus.Error) SetStatus(TunnelStatus.Disconnected);
+    private async Task<ChameleonClient> StartClientAsync(TunnelOptions options, IPEndPoint serverEndpoint,
+        IPEndPoint socksEndpoint, CancellationToken ct)
+    {
+        IPEndPoint[]? extras = options.ExtraCarriers is { Length: > 0 }
+            ? await Task.WhenAll(options.ExtraCarriers
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(e => ResolveAsync(e, ct))).ConfigureAwait(false)
+            : null;
+        return await ChameleonClient.StartAsync(
+                serverEndpoint, X25519.GenerateKeyPair(), Convert.FromHexString(options.ServerPublicKeyHex),
+                socksEndpoint, carrier: BcTlsCarrier.Client(options.Sni), extraCarrierEndpoints: extras,
+                cancellationToken: ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Следит за обрывом сессии. При обрыве пытается переподнять клиента (маршруты и
+    /// tun2socks остаются - короткие обрывы переживаются бесшовно). Если не удалось за
+    /// заданное число попыток - откатывает маршруты, чтобы вернуть прямой интернет.
+    /// </summary>
+    private async Task WatchdogAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            ChameleonClient? client = _client;
+            if (client is null) return;
+
+            try
+            {
+                await client.Completion.WaitAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (ct.IsCancellationRequested) return;
+
+            Info("сессия оборвалась - пробую переподключиться…");
+            SetStatus(TunnelStatus.Reconnecting);
+
+            bool ok = false;
+            for (int attempt = 1;
+                 attempt <= (_options?.ReconnectAttempts ?? 5) && !ct.IsCancellationRequested;
+                 attempt++)
+            {
+                try
+                {
+                    if (_client is { } old)
+                    {
+                        try
+                        {
+                            await old.DisposeAsync().ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            // ignored
+                        }
+                    }
+
+                    _client = await StartClientAsync(_options!, _serverEndpoint!, _socksEndpoint!, ct)
+                        .ConfigureAwait(false);
+                    Info($"переподключено (попытка {attempt}), несущих: {_client.CarrierCount}");
+                    SetStatus(TunnelStatus.Connected);
+                    ok = true;
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception e)
+                {
+                    Info($"попытка {attempt} не удалась: {e.Message}");
+                    try
+                    {
+                        await Task.Delay(_options?.ReconnectDelayMs ?? 3000, ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                }
+            }
+
+            if (!ok)
+            {
+                Info("переподключиться не удалось - откатываю маршруты (возвращаю прямой интернет)");
+                await CleanupAsync(CancellationToken.None).ConfigureAwait(false);
+                SetStatus(TunnelStatus.Error);
+                return;
+            }
+        }
     }
 
     /// <summary>Ждёт появления TUN-адаптера И его готовности (Up). Возвращает индекс интерфейса.</summary>
     private async Task<int> WaitForTunAsync(string name, CancellationToken ct)
     {
-        for (int i = 0; i < 100; i++)
+        for (int i = 0; i < 100; i++) 
         {
             var ni = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
                 .FirstOrDefault(n => n.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -180,7 +304,7 @@ public sealed class TunnelService : IAsyncDisposable
                 return idx;
             }
 
-            if (_tun2Socks?.HasExited == true)
+            if (_tun2socks?.HasExited == true)
                 throw new InvalidOperationException("tun2socks завершился преждевременно");
             await Task.Delay(100, ct).ConfigureAwait(false);
         }

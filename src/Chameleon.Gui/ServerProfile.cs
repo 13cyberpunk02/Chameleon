@@ -29,7 +29,7 @@ public sealed class ServerProfile
         int port = i > 0 && int.TryParse(Server[(i + 1)..], out int p) ? p : 443;
         return new ChameleonLink(host, port, ServerPublicKeyHex,
             string.IsNullOrWhiteSpace(Sni) ? host : Sni,
-            [], string.IsNullOrWhiteSpace(Name) ? null : Name).Build();
+            System.Array.Empty<string>(), string.IsNullOrWhiteSpace(Name) ? null : Name).Build();
     }
 }
 

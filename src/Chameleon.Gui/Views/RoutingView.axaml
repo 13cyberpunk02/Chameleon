@@ -1,0 +1,8 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Chameleon.Gui.Views.RoutingView">
+    <StackPanel Spacing="8">
+        <TextBlock Text="Маршрутизация" FontSize="22" FontWeight="Bold" />
+        <TextBlock Text="(страница в разработке)" Foreground="#808080" />
+    </StackPanel>
+</UserControl>

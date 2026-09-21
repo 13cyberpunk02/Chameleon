@@ -29,6 +29,9 @@ public sealed class ChameleonClient : IAsyncDisposable
     public long BytesReceived => _session.BytesReceived;
     public int RttMs => _session.RttMs;
 
+    /// <summary>Завершается, когда сессия оборвалась (все несущие мертвы).</summary>
+    public Task Completion => _session.Completion;
+
     public static async Task<ChameleonClient> StartAsync(
         IPEndPoint serverEndPoint, KeyPair clientStatic, byte[] serverStaticPublic,
         IPEndPoint socksEndPoint, uint carrierId = 1, CarrierWrapper? carrier = null,

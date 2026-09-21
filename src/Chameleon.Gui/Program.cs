@@ -1,5 +1,4 @@
 ﻿using Avalonia;
-using System;
 
 namespace Chameleon.Gui;
 
@@ -9,12 +8,22 @@ sealed class Program
     // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
     // yet and stuff might break.
     [STAThread]
-    public static void Main(string[] args) => BuildAvaloniaApp()
-        .StartWithClassicDesktopLifetime(args);
-
+    public static void Main(string[] args)
+    {
+        try
+        {
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+        catch (Exception ex)
+        {
+            File.WriteAllText("chameleon-crash.txt", ex.ToString());
+            throw;
+        }
+    }
+    
     // Avalonia configuration, don't remove; also used by visual designer.
-    public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>()
+    public static AppBuilder BuildAvaloniaApp() =>
+        AppBuilder.Configure<App>()
             .UsePlatformDetect()
 #if DEBUG
             .WithDeveloperTools()
