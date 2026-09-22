@@ -14,7 +14,7 @@ public sealed partial class ConnectViewModel : PageViewModel
 
     private readonly TunnelService _tunnel = Services.Tunnel;
     private readonly ProfileStore _store = Services.Store;
-    private Timer? _statusTimer;
+    private System.Threading.Timer? _statusTimer;
     private DateTime _connectedAt;
 
     public ConnectViewModel()
@@ -22,12 +22,11 @@ public sealed partial class ConnectViewModel : PageViewModel
         _tunnel.StatusChanged += (_, s) => Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyStatus(s));
         ApplyStatus(_tunnel.Status);
     }
-
-    // Статус
+    
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _statusText = "Отключено";
-    [ObservableProperty] private IBrush _statusColor = Brush.Parse("#8B949E"); // серый
+    [ObservableProperty] private IBrush _statusColor = Brush.Parse("#8B949E");
     [ObservableProperty] private string _buttonText = "Подключить";
 
     [ObservableProperty] private string _publicIp = "-";
@@ -71,6 +70,7 @@ public sealed partial class ConnectViewModel : PageViewModel
                     ? (OperatingSystem.IsWindows() ? "tun2socks.exe" : "tun2socks")
                     : _store.Tun2SocksPath,
                 Tun2SocksLogLevel = string.IsNullOrWhiteSpace(_store.LogLevel) ? "error" : _store.LogLevel,
+                BypassRules = _store.BypassRules,
             };
             ActiveProfile = profile.Display;
             await _tunnel.ConnectAsync(options);
@@ -106,7 +106,7 @@ public sealed partial class ConnectViewModel : PageViewModel
     private void StartStats()
     {
         _connectedAt = DateTime.Now;
-        _statusTimer ??= new Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStats), null,
+        _statusTimer ??= new System.Threading.Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStats), null,
             0, 1000);
         _ = RefreshIpAsync();
     }
@@ -151,7 +151,7 @@ public sealed partial class ConnectViewModel : PageViewModel
 
     private static string Human(long bytes)
     {
-        string[] u = ["B", "KB", "MB", "GB", "TB"];
+        string[] u = { "B", "KB", "MB", "GB", "TB" };
         double v = bytes;
         int k = 0;
         while (v >= 1024 && k < u.Length - 1)

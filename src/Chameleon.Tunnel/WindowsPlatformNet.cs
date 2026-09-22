@@ -5,6 +5,7 @@ namespace Chameleon.Tunnel;
 
 /// <summary>
 /// Реализация под Windows: маршруты через `route`, настройка адаптера через `netsh`.
+/// Требует прав администратора. НЕ ПРОВЕРЕНО в песочнице - тестировать на реальной
 /// Windows и при необходимости подправить имена/индексы адаптера.
 /// </summary>
 [SupportedOSPlatform("windows")]
@@ -42,7 +43,7 @@ public sealed class WindowsPlatformNet : IPlatformNet
         {
             Log?.Invoke($"route print не разобран ({e.Message}), fallback на NetworkInterface");
         }
-
+        
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (ni.OperationalStatus != OperationalStatus.Up) continue;
@@ -94,6 +95,14 @@ public sealed class WindowsPlatformNet : IPlatformNet
 
     public Task RemoveHostRouteAsync(string destinationIp, CancellationToken ct)
         => ProcessRunner.RunAsync("route", $"delete {destinationIp}", Log, ct);
+
+    public Task AddBypassRouteAsync(string network, int prefix, string gatewayIp, int interfaceIndex,
+        CancellationToken ct)
+        => ProcessRunner.RunAsync("route",
+            $"add {network} mask {PrefixToMask(prefix)} {gatewayIp} metric 1 if {interfaceIndex}", Log, ct);
+
+    public Task RemoveBypassRouteAsync(string network, int prefix, CancellationToken ct)
+        => ProcessRunner.RunAsync("route", $"delete {network} mask {PrefixToMask(prefix)}", Log, ct);
 
     public async Task ConfigureTunAsync(TunnelOptions o, int interfaceIndex, CancellationToken ct)
     {
@@ -152,6 +161,8 @@ public sealed class WindowsPlatformNet : IPlatformNet
         return false;
     }
 
+    // ВАЖНО: маршруты привязываем к ИНДЕКСУ TUN-адаптера, иначе Windows по next-hop
+    // может выбрать не тот интерфейс - и трафик уйдёт мимо TUN (реальный баг был именно тут).
     private int _tunIndex;
 
     public async Task AddDefaultViaTunAsync(TunnelOptions o, CancellationToken ct)
@@ -181,9 +192,6 @@ public sealed class WindowsPlatformNet : IPlatformNet
         {
             string output = await ProcessRunner.RunCaptureAsync("netsh", "interface ipv4 show route", ct)
                 .ConfigureAwait(false);
-            string escaped = System.Text.RegularExpressions.Regex.Escape(prefix);
-            // Строка таблицы содержит и префикс, и индекс интерфейса как отдельные токены.
-            var rx = new System.Text.RegularExpressions.Regex($@"{escaped}.*{ifIndex}|{ifIndex}.*{escaped}");
             foreach (string line in output.Split('\n'))
                 if (line.Contains(prefix) && System.Text.RegularExpressions.Regex.IsMatch(line, $@"{ifIndex}"))
                     return true;

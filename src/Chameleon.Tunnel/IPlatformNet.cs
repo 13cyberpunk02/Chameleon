@@ -16,6 +16,11 @@ public interface IPlatformNet
 
     Task RemoveHostRouteAsync(string destinationIp, CancellationToken ct);
 
+    /// <summary>Bypass: маршрут сети (IP/CIDR) НАПРЯМУЮ через реальный шлюз (мимо TUN).</summary>
+    Task AddBypassRouteAsync(string network, int prefix, string gatewayIp, int interfaceIndex, CancellationToken ct);
+
+    Task RemoveBypassRouteAsync(string network, int prefix, CancellationToken ct);
+
     /// <summary>Назначить TUN-адаптеру адрес и DNS.</summary>
     Task ConfigureTunAsync(TunnelOptions options, int interfaceIndex, CancellationToken ct);
 

@@ -1,8 +1,48 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="Chameleon.Gui.Views.RoutingView">
-    <StackPanel Spacing="8">
-        <TextBlock Text="Маршрутизация" FontSize="22" FontWeight="Bold" />
-        <TextBlock Text="(страница в разработке)" Foreground="#808080" />
-    </StackPanel>
+             xmlns:vm="using:Chameleon.Gui.ViewModels"
+             xmlns:tun="using:Chameleon.Tunnel"
+             x:Class="Chameleon.Gui.Views.RoutingView"
+             x:DataType="vm:RoutingViewModel">
+    <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="Маршрутизация" FontSize="22" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="#8B949E" FontSize="13" Margin="0,0,0,14"
+                   Text="Split-tunnel: эти адреса идут НАПРЯМУЮ, мимо туннеля. Удобно для SSH-серверов (не рвутся при переподключении VPN), банков, локальной сети. Изменения применяются при следующем подключении." />
+
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,*,Auto" ColumnSpacing="8" Margin="0,0,0,12">
+            <TextBox Grid.Column="0" Text="{Binding NewValue}" PlaceholderText="IP / 10.0.0.0/8 / ssh.example.com" />
+            <TextBox Grid.Column="1" Text="{Binding NewNote}" PlaceholderText="заметка (необязательно)" />
+            <Button Grid.Column="2" Content="➕  Добавить" Command="{Binding AddCommand}" />
+        </Grid>
+
+        <TextBlock DockPanel.Dock="Bottom" Text="{Binding Hint}" Foreground="#8B949E" FontSize="12"
+                   TextWrapping="Wrap" Margin="0,10,0,0" />
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+            <Button Content="🗑  Удалить выбранное" Command="{Binding RemoveCommand}" />
+        </StackPanel>
+
+        <Border Background="#0CFFFFFF" CornerRadius="10" Padding="4">
+            <ListBox ItemsSource="{Binding Rules}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                     Background="Transparent">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="tun:BypassRule">
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,8">
+                            <CheckBox Grid.Column="0" IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                      VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <StackPanel Grid.Column="1" Spacing="2">
+                                <TextBlock Text="{Binding Value}" FontSize="15" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Note}" FontSize="12" Foreground="#8B949E"
+                                           IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            </StackPanel>
+                            <Border Grid.Column="2" Background="#22808080" CornerRadius="6" Padding="8,3"
+                                    VerticalAlignment="Center">
+                                <TextBlock Text="{Binding KindLabel}" FontSize="11" Foreground="#8B949E" />
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+    </DockPanel>
 </UserControl>

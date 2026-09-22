@@ -8,9 +8,10 @@ public sealed class LinuxPlatformNet : IPlatformNet
 
     public Task<(string, int)> GetDefaultRouteAsync(CancellationToken ct) => throw new PlatformNotSupportedException(
         "TUN для Linux пока не реализован - задел на будущее.");
-
     public Task AddHostRouteAsync(string d, string g, int i, CancellationToken ct) => Nope();
     public Task RemoveHostRouteAsync(string d, CancellationToken ct) => Nope();
+    public Task AddBypassRouteAsync(string n, int p, string g, int i, CancellationToken ct) => Nope();
+    public Task RemoveBypassRouteAsync(string n, int p, CancellationToken ct) => Nope();
     public Task ConfigureTunAsync(TunnelOptions o, int i, CancellationToken ct) => Nope();
     public Task AddDefaultViaTunAsync(TunnelOptions o, CancellationToken ct) => Nope();
     public Task RemoveDefaultViaTunAsync(TunnelOptions o, CancellationToken ct) => Nope();

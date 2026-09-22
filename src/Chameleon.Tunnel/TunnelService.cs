@@ -21,12 +21,15 @@ public sealed class TunnelService : IAsyncDisposable
     private ChameleonClient? _client;
 
     /// <summary>Активный клиент (для статистики), null пока не подключено.</summary>
-    public ChameleonClient? Client => _client;
+    public Chameleon.Core.Proxy.ChameleonClient? Client => _client;
 
     private Process? _tun2socks;
     private TunnelOptions? _options;
     private string? _serverIp;
     private bool _hostRouteAdded, _defaultRouteAdded;
+    private string? _gatewayIp;
+    private int _gatewayIfIndex;
+    private readonly List<(string Network, int Prefix)> _bypassAdded = [];
     private IPEndPoint? _serverEndpoint, _socksEndpoint;
     private Task? _watchdog;
     private CancellationTokenSource? _watchdogCts;
@@ -55,10 +58,9 @@ public sealed class TunnelService : IAsyncDisposable
             if (OperatingSystem.IsWindows())
             {
                 string wintun = Path.Combine(workDir, "wintun.dll");
-                if (File.Exists(wintun)) Info($"найден wintun.dll: {wintun}");
-                else
-                    Info(
-                        $"ВНИМАНИЕ: рядом с tun2socks нет wintun.dll ({wintun}) - адаптер, скорее всего, не поднимется. Положите wintun.dll той же разрядности в папку с tun2socks.exe.");
+                Info(File.Exists(wintun)
+                    ? $"найден wintun.dll: {wintun}"
+                    : $"ВНИМАНИЕ: рядом с tun2socks нет wintun.dll ({wintun}) - адаптер, скорее всего, не поднимется. Положите wintun.dll той же разрядности в папку с tun2socks.exe.");
             }
 
             _serverEndpoint = await ResolveAsync(options.Server, ct).ConfigureAwait(false);
@@ -67,26 +69,30 @@ public sealed class TunnelService : IAsyncDisposable
             
             _client = await StartClientAsync(options, _serverEndpoint, _socksEndpoint, ct).ConfigureAwait(false);
             Info($"клиент поднят, SOCKS5 на {_client.SocksEndPoint}, несущих: {_client.CarrierCount}");
-
+            
             var (gateway, ifIndex) = await _net.GetDefaultRouteAsync(ct).ConfigureAwait(false);
+            _gatewayIp = gateway;
+            _gatewayIfIndex = ifIndex;
             Info($"текущий шлюз: {gateway} (if {ifIndex})");
             await _net.AddHostRouteAsync(_serverIp, gateway, ifIndex, ct).ConfigureAwait(false);
             _hostRouteAdded = true;
-
+            
             string device = OperatingSystem.IsWindows() ? options.TunDeviceName : $"tun://{options.TunDeviceName}";
             string proxy = $"socks5://{_socksEndpoint!.Address}:{_socksEndpoint.Port}";
             _tun2socks = ProcessRunner.Start(exe,
                 $"--device {device} --proxy {proxy} --loglevel {options.Tun2SocksLogLevel}", m => Log?.Invoke(this, m),
                 workDir);
             int tunIndex = await WaitForTunAsync(options.TunDeviceName, ct).ConfigureAwait(false);
-
+            
             await _net.ConfigureTunAsync(options, tunIndex, ct).ConfigureAwait(false);
             await _net.AddDefaultViaTunAsync(options, ct).ConfigureAwait(false);
             _defaultRouteAdded = true;
+            
+            await ApplyBypassAsync(options, ct).ConfigureAwait(false);
 
             SetStatus(TunnelStatus.Connected);
             Info("VPN-режим включён: весь трафик идёт через туннель.");
-
+            
             _watchdogCts = new CancellationTokenSource();
             _watchdog = Task.Run(() => WatchdogAsync(_watchdogCts.Token));
         }
@@ -131,9 +137,59 @@ public sealed class TunnelService : IAsyncDisposable
         if (Status != TunnelStatus.Error) SetStatus(TunnelStatus.Disconnected);
     }
 
+    private async Task ApplyBypassAsync(TunnelOptions options, CancellationToken ct)
+    {
+        if (options.BypassRules is null || _gatewayIp is null) return;
+        int count = 0;
+        foreach (var rule in options.BypassRules)
+        {
+            if (!rule.Enabled) continue;
+            IReadOnlyList<(System.Net.IPAddress Network, int Prefix)> nets;
+            try
+            {
+                nets = await rule.ResolveAsync(ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var (net, prefix) in nets)
+            {
+                try
+                {
+                    await _net.AddBypassRouteAsync(net.ToString(), prefix, _gatewayIp, _gatewayIfIndex, ct)
+                        .ConfigureAwait(false);
+                    _bypassAdded.Add((net.ToString(), prefix));
+                    count++;
+                }
+                catch (Exception e)
+                {
+                    Info($"bypass {rule.Value}: {e.Message}");
+                }
+            }
+        }
+
+        if (count > 0) Info($"split-tunnel: {count} адрес(ов) идут напрямую мимо туннеля");
+    }
+
     /// <summary>Снимает маршруты, гасит tun2socks и клиента. Идемпотентно.</summary>
     private async Task CleanupAsync(CancellationToken ct)
     {
+        foreach (var (net, prefix) in _bypassAdded)
+        {
+            try
+            {
+                await _net.RemoveBypassRouteAsync(net, prefix, ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        _bypassAdded.Clear();
+
         if (_options is { } o)
         {
             if (_defaultRouteAdded)
@@ -293,7 +349,7 @@ public sealed class TunnelService : IAsyncDisposable
     /// <summary>Ждёт появления TUN-адаптера И его готовности (Up). Возвращает индекс интерфейса.</summary>
     private async Task<int> WaitForTunAsync(string name, CancellationToken ct)
     {
-        for (int i = 0; i < 100; i++) 
+        for (int i = 0; i < 100; i++) // до ~10 c
         {
             var ni = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
                 .FirstOrDefault(n => n.Name.Equals(name, StringComparison.OrdinalIgnoreCase));

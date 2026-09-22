@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Chameleon.Core.Proxy;
 using Chameleon.Gui.Settings;
+using Chameleon.Tunnel;
 
 namespace Chameleon.Gui;
 
@@ -36,14 +37,14 @@ public sealed class ServerProfile
 /// <summary>Хранилище: список профилей + общие настройки (tun2socks, автозапуск и т.п.).</summary>
 public sealed class ProfileStore
 {
-    public List<ServerProfile> Profiles { get; set; } = new();
+    public List<ServerProfile> Profiles { get; set; } = [];
     public int SelectedIndex { get; set; } = 0;
-
-    // Общие (не привязаны к серверу)
+    
     public string Socks { get; set; } = "127.0.0.1:1080";
     public string Tun2SocksPath { get; set; } = "";
     public string LogLevel { get; set; } = "error";
     public bool AutoConnect { get; set; } = false;
+    public List<BypassRule> BypassRules { get; set; } = [];
 
     private static string Path => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Chameleon", "profiles.json");
@@ -104,7 +105,7 @@ public sealed class ProfileStore
         }
         catch
         {
-            // ignored
+            // 
         }
 
         return store;
