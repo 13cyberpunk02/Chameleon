@@ -67,17 +67,17 @@ public sealed class TunnelService : IAsyncDisposable
             _serverEndpoint = await ResolveAsync(options.Server, ct).ConfigureAwait(false);
             _serverIp = _serverEndpoint.Address.ToString();
             _socksEndpoint = ParseLocal(options.SocksListen);
-
+            
             _client = await StartClientAsync(options, _serverEndpoint, _socksEndpoint, ct).ConfigureAwait(false);
             Info($"клиент поднят, SOCKS5 на {_client.SocksEndPoint}, несущих: {_client.CarrierCount}");
-
+            
             var (gateway, ifIndex) = await _net.GetDefaultRouteAsync(ct).ConfigureAwait(false);
             _gatewayIp = gateway;
             _gatewayIfIndex = ifIndex;
             Info($"текущий шлюз: {gateway} (if {ifIndex})");
             await _net.AddHostRouteAsync(_serverIp, gateway, ifIndex, ct).ConfigureAwait(false);
             _hostRouteAdded = true;
-
+            
             string device = OperatingSystem.IsWindows() ? options.TunDeviceName : $"tun://{options.TunDeviceName}";
             string proxy = $"socks5://{_socksEndpoint!.Address}:{_socksEndpoint.Port}";
             _tun2socks = ProcessRunner.Start(exe,
@@ -85,15 +85,16 @@ public sealed class TunnelService : IAsyncDisposable
                 workDir);
             int tunIndex = await WaitForTunAsync(options.TunDeviceName, ct).ConfigureAwait(false);
 
+            
             await _net.ConfigureTunAsync(options, tunIndex, ct).ConfigureAwait(false);
             await _net.AddDefaultViaTunAsync(options, ct).ConfigureAwait(false);
             _defaultRouteAdded = true;
-
+            
             await ApplyBypassAsync(options, ct).ConfigureAwait(false);
 
             SetStatus(TunnelStatus.Connected);
             Info("VPN-режим включён: весь трафик идёт через туннель.");
-
+            
             _watchdogCts = new CancellationTokenSource();
             _watchdog = Task.Run(() => WatchdogAsync(_watchdogCts.Token));
         }
@@ -145,7 +146,7 @@ public sealed class TunnelService : IAsyncDisposable
         foreach (var rule in options.BypassRules)
         {
             if (!rule.Enabled) continue;
-            IReadOnlyList<(IPAddress Network, int Prefix)> nets;
+            IReadOnlyList<(System.Net.IPAddress Network, int Prefix)> nets;
             try
             {
                 nets = await rule.ResolveAsync(ct).ConfigureAwait(false);
@@ -350,14 +351,26 @@ public sealed class TunnelService : IAsyncDisposable
     /// <summary>Ждёт появления TUN-адаптера И его готовности (Up). Возвращает индекс интерфейса.</summary>
     private async Task<int> WaitForTunAsync(string name, CancellationToken ct)
     {
+        bool requireUp = OperatingSystem.IsWindows();
         for (int i = 0; i < 100; i++) // до ~10 c
         {
             var ni = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
                 .FirstOrDefault(n => n.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-            if (ni is not null && ni.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
+            bool ready = ni is not null &&
+                         (!requireUp || ni.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up);
+            if (ready)
             {
-                int idx = ni.GetIPProperties().GetIPv4Properties().Index;
-                Info($"TUN-адаптер «{name}» готов (if {idx})");
+                int idx = 0;
+                try
+                {
+                    idx = ni!.GetIPProperties().GetIPv4Properties().Index;
+                }
+                catch
+                {
+                    // ignored
+                }
+
+                Info($"TUN-адаптер «{name}» обнаружен (if {idx})");
                 return idx;
             }
 
