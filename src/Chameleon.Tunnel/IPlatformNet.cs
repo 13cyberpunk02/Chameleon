@@ -8,6 +8,9 @@ namespace Chameleon.Tunnel;
 /// </summary>
 public interface IPlatformNet
 {
+    /// <summary>Логгер команд (устанавливает TunnelService).</summary>
+    Action<string>? Log { get; set; }
+
     /// <summary>Текущий шлюз по умолчанию и индекс интерфейса (до поднятия TUN).</summary>
     Task<(string GatewayIp, int InterfaceIndex)> GetDefaultRouteAsync(CancellationToken ct);
 
