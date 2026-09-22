@@ -27,6 +27,12 @@ public static class TlsCarrier
     private static readonly List<SslApplicationProtocol> BrowserAlpn =
         [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
 
+    // Сервер терминирует TLS сам. Наш клиент внутри говорит Noise (не HTTP), а
+    // декой-прокси умеет только HTTP/1.1. Поэтому сервер анонсирует ТОЛЬКО h1 -
+    // иначе браузер-зонд выберет h2 и упрётся в GOAWAY на H1-декое.
+    private static readonly List<SslApplicationProtocol> ServerAlpn =
+        [SslApplicationProtocol.Http11];
+
     /// <summary>
     /// Клиентская несущая. <paramref name="serverName"/> - SNI (в бою это домен
     /// прикрытия). <paramref name="validate"/> по умолчанию принимает любой
@@ -63,7 +69,7 @@ public static class TlsCarrier
             var options = new SslServerAuthenticationOptions
             {
                 ServerCertificate = certificate,
-                ApplicationProtocols = BrowserAlpn,
+                ApplicationProtocols = ServerAlpn,
                 EnabledSslProtocols = SslProtocols.Tls13 | SslProtocols.Tls12,
             };
 
@@ -81,7 +87,7 @@ public static class TlsCarrier
         san.AddDnsName(commonName);
         request.CertificateExtensions.Add(san.Build());
 
-        using X509Certificate2 certificate = request.CreateSelfSigned(
+        using var certificate = request.CreateSelfSigned(
             DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
 
         byte[] pfx = certificate.Export(X509ContentType.Pfx);
