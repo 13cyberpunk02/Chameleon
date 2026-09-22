@@ -11,6 +11,7 @@ namespace Chameleon.Gui;
 public partial class App : Application
 {
     private MainWindow? _window;
+    private TrayIcon? _tray;
     private bool _exiting;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
@@ -51,10 +52,33 @@ public partial class App : Application
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(exit);
 
-        var tray = new TrayIcon { Icon = AppIcon.Load(), ToolTipText = "Chameleon", Menu = menu, IsVisible = true };
-        tray.Clicked += (_, _) => ShowWindow();
-        TrayIcon.SetIcons(this, new TrayIcons { tray });
+        _tray = new TrayIcon
+        {
+            Icon = AppIcon.ForStatus(Services.Tunnel.Status),
+            ToolTipText = "Chameleon — отключено",
+            Menu = menu,
+            IsVisible = true,
+        };
+        _tray.Clicked += (_, _) => ShowWindow();
+        TrayIcon.SetIcons(this, [_tray]);
+
+        Services.Tunnel.StatusChanged += (_, status) =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (_tray is null) return;
+                _tray.Icon = AppIcon.ForStatus(status);
+                _tray.ToolTipText = "Chameleon — " + StatusText(status);
+            });
     }
+
+    private static string StatusText(Tunnel.TunnelStatus s) => s switch
+    {
+        Tunnel.TunnelStatus.Connected => "подключено",
+        Tunnel.TunnelStatus.Connecting => "подключение…",
+        Tunnel.TunnelStatus.Reconnecting => "переподключение…",
+        Tunnel.TunnelStatus.Error => "ошибка",
+        _ => "отключено",
+    };
 
     private void ShowWindow()
     {

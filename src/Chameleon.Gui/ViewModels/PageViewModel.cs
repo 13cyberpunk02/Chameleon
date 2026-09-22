@@ -10,4 +10,7 @@ public abstract partial class PageViewModel : ObservableObject
 
     /// <summary>Значок страницы (эмодзи-глиф, рендерится системным шрифтом).</summary>
     public abstract string Icon { get; }
+
+    /// <summary>true, если это текущая (активная) страница - для подсветки в sidebar.</summary>
+    [ObservableProperty] private bool _isActive;
 }

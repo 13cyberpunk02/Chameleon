@@ -3,35 +3,39 @@
              xmlns:vm="using:Chameleon.Gui.ViewModels"
              x:Class="Chameleon.Gui.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
-    <StackPanel Spacing="18" MaxWidth="560" HorizontalAlignment="Left">
-        <TextBlock Text="Настройки" FontSize="22" FontWeight="Bold" />
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="18" MaxWidth="560" HorizontalAlignment="Left">
+            <TextBlock Classes="h1" Text="Настройки" />
 
-        <StackPanel Spacing="6">
-            <TextBlock Text="Путь к tun2socks" Foreground="#8B949E" FontSize="13" />
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBox Grid.Column="0" Text="{Binding Tun2SocksPath}"
-                         PlaceholderText="tun2socks.exe (рядом должен лежать wintun.dll)" />
-                <Button Grid.Column="1" Content="Обзор…" Margin="8,0,0,0" Command="{Binding BrowseTun2SocksCommand}" />
-            </Grid>
+            <StackPanel Spacing="6">
+                <TextBlock Text="Путь к tun2socks" Classes="label" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBox Grid.Column="0" Text="{Binding Tun2SocksPath}"
+                             PlaceholderText="tun2socks.exe (рядом должен лежать wintun.dll)" />
+                    <Button Grid.Column="1" Content="Обзор…" Margin="8,0,0,0"
+                            Command="{Binding BrowseTun2SocksCommand}" />
+                </Grid>
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="Локальный SOCKS5" Classes="label" />
+                <TextBox Text="{Binding Socks}" PlaceholderText="127.0.0.1:1080" />
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="Уровень логов tun2socks" Classes="label" />
+                <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel, Mode=TwoWay}"
+                          MinWidth="160" />
+            </StackPanel>
+
+            <StackPanel Spacing="10" Margin="0,4,0,0">
+                <CheckBox Content="Авто подключение при запуске" IsChecked="{Binding AutoConnect}" />
+                <CheckBox Content="Автозапуск с Windows" IsChecked="{Binding AutoStart}"
+                          IsEnabled="{Binding AutoStartSupported}"
+                          ToolTip.Tip="Запускать Chameleon при входе в систему (только Windows)" />
+            </StackPanel>
+
+            <TextBlock Classes="subtitle" Text="{Binding Hint}" Margin="0,4,0,0" />
         </StackPanel>
-
-        <StackPanel Spacing="6">
-            <TextBlock Text="Локальный SOCKS5" Foreground="#8B949E" FontSize="13" />
-            <TextBox Text="{Binding Socks}" PlaceholderText="127.0.0.1:1080" />
-        </StackPanel>
-
-        <StackPanel Spacing="6">
-            <TextBlock Text="Уровень логов tun2socks" Foreground="#8B949E" FontSize="13" />
-            <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel, Mode=TwoWay}" MinWidth="160" />
-        </StackPanel>
-
-        <StackPanel Spacing="10" Margin="0,4,0,0">
-            <CheckBox Content="Авто подключение при запуске" IsChecked="{Binding AutoConnect}" />
-            <CheckBox Content="Автозапуск с Windows" IsChecked="{Binding AutoStart}"
-                      IsEnabled="{Binding AutoStartSupported}"
-                      ToolTip.Tip="Запускать Chameleon при входе в систему (только Windows)" />
-        </StackPanel>
-
-        <TextBlock Text="{Binding Hint}" Foreground="#8B949E" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
-    </StackPanel>
+    </ScrollViewer>
 </UserControl>

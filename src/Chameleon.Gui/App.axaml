@@ -3,33 +3,103 @@
              x:Class="Chameleon.Gui.App"
              xmlns:vms="using:Chameleon.Gui.ViewModels"
              xmlns:views="using:Chameleon.Gui.Views"
-             xmlns:local="using:Chameleon.Gui"
              RequestedThemeVariant="Default">
     <Application.Resources>
         <ResourceDictionary>
-            <Color x:Key="ChameleonGreen">#3FB950</Color>
-            <Color x:Key="ChameleonGreenDark">#2EA043</Color>
-            <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource ChameleonGreen}" />
+            <Color x:Key="AccentColor">#3FB950</Color>
+            <Color x:Key="AccentColorHover">#4FCB60</Color>
+            <Color x:Key="AccentColorPressed">#2EA043</Color>
+            <Color x:Key="DangerColor">#F85149</Color>
+            <Color x:Key="WarnColor">#D29922</Color>
+            <Color x:Key="MutedColor">#8B949E</Color>
+
+            <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+            <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentColorHover}" />
+            <SolidColorBrush x:Key="AccentPressedBrush" Color="{StaticResource AccentColorPressed}" />
+            <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
+            <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedColor}" />
+            <SolidColorBrush x:Key="CardBrush" Color="#14FFFFFF" />
+            <SolidColorBrush x:Key="SidebarBrush" Color="#10000000" />
+            <SolidColorBrush x:Key="HoverOverlay" Color="#1A808080" />
+            <SolidColorBrush x:Key="ActiveOverlay" Color="#333FB950" />
         </ResourceDictionary>
     </Application.Resources>
 
     <Application.Styles>
         <FluentTheme />
+        
+        <Style Selector="Button">
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style Selector="Button.accent">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource AccentHoverBrush}" />
+        </Style>
+        <Style Selector="Button.accent:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource AccentPressedBrush}" />
+        </Style>
+
+        <Style Selector="Button.danger">
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+        </Style>
 
         <Style Selector="Button.nav">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Padding" Value="14,10" />
-            <Setter Property="Margin" Value="6,2" />
+            <Setter Property="Margin" Value="8,2" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="FontSize" Value="14" />
         </Style>
         <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#22808080" />
+            <Setter Property="Background" Value="{StaticResource HoverOverlay}" />
         </Style>
         <Style Selector="Button.nav.active">
-            <Setter Property="Background" Value="#333FB950" />
+            <Setter Property="Background" Value="{StaticResource ActiveOverlay}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{StaticResource CardBrush}" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="18" />
+        </Style>
+
+        <Style Selector="TextBlock.h1">
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="TextBlock.subtitle">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.label">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="TextBlock.value">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="Border.chip">
+            <Setter Property="Background" Value="{StaticResource HoverOverlay}" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="8,3" />
         </Style>
     </Application.Styles>
 

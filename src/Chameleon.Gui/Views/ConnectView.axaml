@@ -6,7 +6,7 @@
     <StackPanel Spacing="24" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="360">
 
         <TextBlock Text="{Binding ActiveProfile}" HorizontalAlignment="Center"
-                   FontSize="14" Foreground="#8B949E" />
+                   Classes="subtitle" FontSize="14" />
 
         <Button Command="{Binding ToggleCommand}"
                 Width="180" Height="180" CornerRadius="90"
@@ -26,35 +26,34 @@
                        Foreground="{Binding StatusColor}" />
         </StackPanel>
 
-        <Border IsVisible="{Binding IsConnected}"
-                Background="#0CFFFFFF" CornerRadius="12" Padding="18" MinWidth="360">
+        <Border Classes="card" IsVisible="{Binding IsConnected}" MinWidth="360">
             <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="14" ColumnSpacing="24">
 
                 <StackPanel Grid.Row="0" Grid.Column="0">
-                    <TextBlock Text="IP через туннель" Foreground="#8B949E" FontSize="12" />
-                    <TextBlock Text="{Binding PublicIp}" FontSize="15" FontWeight="SemiBold" />
+                    <TextBlock Text="IP через туннель" Classes="label" />
+                    <TextBlock Text="{Binding PublicIp}" Classes="value" />
                 </StackPanel>
                 <StackPanel Grid.Row="0" Grid.Column="1">
-                    <TextBlock Text="Пинг" Foreground="#8B949E" FontSize="12" />
-                    <TextBlock Text="{Binding Rtt}" FontSize="15" FontWeight="SemiBold" />
+                    <TextBlock Text="Пинг" Classes="label" />
+                    <TextBlock Text="{Binding Rtt}" Classes="value" />
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Grid.Column="0">
-                    <TextBlock Text="Отправлено ↑" Foreground="#8B949E" FontSize="12" />
-                    <TextBlock Text="{Binding TrafficUp}" FontSize="15" FontWeight="SemiBold" />
+                    <TextBlock Text="Отправлено ↑" Classes="label" />
+                    <TextBlock Text="{Binding TrafficUp}" Classes="value" />
                 </StackPanel>
                 <StackPanel Grid.Row="1" Grid.Column="1">
-                    <TextBlock Text="Принято ↓" Foreground="#8B949E" FontSize="12" />
-                    <TextBlock Text="{Binding TrafficDown}" FontSize="15" FontWeight="SemiBold" />
+                    <TextBlock Text="Принято ↓" Classes="label" />
+                    <TextBlock Text="{Binding TrafficDown}" Classes="value" />
                 </StackPanel>
 
                 <StackPanel Grid.Row="2" Grid.Column="0">
-                    <TextBlock Text="Время сессии" Foreground="#8B949E" FontSize="12" />
-                    <TextBlock Text="{Binding Uptime}" FontSize="15" FontWeight="SemiBold" />
+                    <TextBlock Text="Время сессии" Classes="label" />
+                    <TextBlock Text="{Binding Uptime}" Classes="value" />
                 </StackPanel>
                 <StackPanel Grid.Row="2" Grid.Column="1">
-                    <TextBlock Text="Несущих" Foreground="#8B949E" FontSize="12" />
-                    <TextBlock Text="{Binding Carriers}" FontSize="15" FontWeight="SemiBold" />
+                    <TextBlock Text="Несущих" Classes="label" />
+                    <TextBlock Text="{Binding Carriers}" Classes="value" />
                 </StackPanel>
             </Grid>
         </Border>

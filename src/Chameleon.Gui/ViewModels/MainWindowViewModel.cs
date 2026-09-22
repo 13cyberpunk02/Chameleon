@@ -21,7 +21,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty] private PageViewModel _current;
 
-    public MainWindowViewModel() => _current = Pages[0];
+    public MainWindowViewModel() => Current = Pages[0];
+
+    partial void OnCurrentChanged(PageViewModel value)
+    {
+        foreach (var p in Pages) p.IsActive = ReferenceEquals(p, value);
+    }
 
     [RelayCommand]
     private void Navigate(PageViewModel page) => Current = page;

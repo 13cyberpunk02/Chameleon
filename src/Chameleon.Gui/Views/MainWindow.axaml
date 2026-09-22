@@ -18,7 +18,7 @@
                 <ItemsControl ItemsSource="{Binding Pages}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:PageViewModel">
-                            <Button Classes="nav"
+                            <Button Classes="nav" Classes.active="{Binding IsActive}"
                                     Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).NavigateCommand}"
                                     CommandParameter="{Binding}">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
@@ -32,8 +32,6 @@
             </DockPanel>
         </Border>
 
-        <ScrollViewer Grid.Column="1" Padding="24">
-            <ContentControl Content="{Binding Current}" />
-        </ScrollViewer>
+        <ContentControl Grid.Column="1" Margin="24" Content="{Binding Current}" />
     </Grid>
 </Window>
