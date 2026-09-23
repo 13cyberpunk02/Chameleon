@@ -50,6 +50,14 @@ await using var server =
     ChameleonServer.Start(endpoint, serverStatic, TlsCarrier.Server(cert), decoyEndpoint, events: events);
 Console.WriteLine($"сервер запущен на {server.EndPoint}. Ctrl+C для остановки.");
 
+using var statsTimer = new Timer(_ =>
+{
+    var st = server.Stats();
+    if (st.ActiveSessions == 0) return;
+    Console.WriteLine($"{DateTime.UtcNow:HH:mm:ss}Z  [stats] сессий={st.ActiveSessions}, потоков={st.TotalStreams}, " +
+                      $"клиентам↓={Bytes(st.TotalBytesToClient)}, от клиентов↑={Bytes(st.TotalBytesFromClient)}");
+}, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+
 var stop = new TaskCompletionSource();
 Console.CancelKeyPress += (_, e) =>
 {
@@ -84,7 +92,7 @@ static X509Certificate2 LoadCert(string? certPem, string? keyPem, string? pfx, s
         using X509Certificate2 fromPem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
         return LoadPfxBytes(fromPem.Export(X509ContentType.Pfx), null);
     }
-
+    
     if (pfx is { Length: > 0 } && File.Exists(pfx))
         return LoadPfxBytes(File.ReadAllBytes(pfx), pass);
     return TlsCarrier.CreateSelfSignedCertificate(sni);
@@ -113,6 +121,20 @@ static string BuildLink(string publicAddr, string keyHex, string sni, string nam
     int i = publicAddr.LastIndexOf(':');
     string host = i > 0 ? publicAddr[..i] : publicAddr;
     int port = i > 0 && int.TryParse(publicAddr[(i + 1)..], out int p) ? p : 443;
-    return new ChameleonLink(host, port, keyHex, sni,
+    return new Chameleon.Core.Proxy.ChameleonLink(host, port, keyHex, sni,
         [], name).Build();
+}
+
+static string Bytes(long b)
+{
+    string[] u = ["B", "KB", "MB", "GB", "TB"];
+    double v = b;
+    int k = 0;
+    while (v >= 1024 && k < u.Length - 1)
+    {
+        v /= 1024;
+        k++;
+    }
+
+    return $"{v:0.#}{u[k]}";
 }

@@ -70,6 +70,7 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     public Action<ChameleonStream>? StreamAccepted { get; set; }
     public int CarrierCount => _carriers.Count(c => c.Alive);
+    public int StreamCount => _streams.Count;
     public long BytesSent => Interlocked.Read(ref _bytesSent);
     public long BytesReceived => Interlocked.Read(ref _bytesReceived);
     public int RttMs => _cc.SmoothedRttMs;
@@ -190,8 +191,8 @@ public sealed class ChameleonSession : IAsyncDisposable
 
         return length;
     }
-
     
+
     private async Task RetransmitLoopAsync(CancellationToken cancellationToken)
     {
         try
@@ -332,7 +333,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         }
     }
 
-    
+
     private async Task ReceiveLoopAsync(Carrier carrier, CancellationToken cancellationToken)
     {
         byte[] buffer = new byte[Crypto.RecordFormat.MaxPlaintext];
@@ -493,9 +494,6 @@ public sealed class ChameleonSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
-        // Сначала закрываем каналы - это разблокирует receive-циклы, зависшие на
-        // чтении (BC-TLS чтение синхронное и может не реагировать на отмену токена).
-        // Иначе await ниже ждал бы вечно (дедлок при отключении на BC-несущей).
         foreach (var c in _carriers)
         {
             try

@@ -18,7 +18,12 @@ public sealed class ChameleonServer : IAsyncDisposable
 {
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
 
-    private sealed record Registered(ChameleonSession Session, byte[] Secret);
+    private sealed record Registered(
+        ChameleonSession Session,
+        byte[] Secret,
+        string RemoteIp,
+        string ClientKey,
+        DateTime StartedUtc);
 
     private readonly TcpListener _listener;
     private readonly KeyPair _serverStatic;
@@ -88,13 +93,13 @@ public sealed class ChameleonServer : IAsyncDisposable
 
             using var hs = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             hs.CancelAfter(HandshakeTimeout);
-
+            
             var buffered = new List<byte>(2);
             byte[] prefix = new byte[2];
             if (!await ReadRecordingAsync(carrier, prefix, buffered, hs.Token).ConfigureAwait(false))
             {
                 LogProbe(remoteIp, "нет данных");
-                await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
+                await Cover(carrier, [.. buffered], cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -136,6 +141,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         byte[] message1 = await Framing.ReadExactCountAsync(carrier, len, cancellationToken).ConfigureAwait(false);
         var handshake = NoiseIkHandshake.CreateResponder(_serverStatic);
+        HandshakeResult result;
         try
         {
             handshake.ReadMessage1(message1);
@@ -147,7 +153,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             return;
         }
 
-        var result = handshake.WriteMessage2(out byte[] message2);
+        result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
 
         var channel = new FrameChannel(carrier);
@@ -155,10 +161,10 @@ public sealed class ChameleonServer : IAsyncDisposable
         session.StreamAccepted += stream => _ = DialAndRelayAsync(session, stream, _cts.Token);
 
         string sessionId = Convert.ToHexString(CarrierJoin.SessionId(result.SessionSecret));
-        _sessions[sessionId] = new Registered(session, result.SessionSecret);
         string clientKey = Convert.ToHexString(result.RemoteStaticPublic)[..16].ToLowerInvariant();
-        _events?.Add("connect", remoteIp, $"новая сессия, client={clientKey}…, активных={_sessions.Count}");
         var startedAt = DateTime.UtcNow;
+        _sessions[sessionId] = new Registered(session, result.SessionSecret, remoteIp, clientKey, startedAt);
+        _events?.Add("connect", remoteIp, $"новая сессия, client={clientKey}…, активных={_sessions.Count}");
 
         try
         {
@@ -337,6 +343,45 @@ public sealed class ChameleonServer : IAsyncDisposable
 
         recorder.AddRange(buffer);
         return true;
+    }
+
+    /// <summary>Снимок активных сессий (для мониторинга/API). Дёшево - только счётчики.</summary>
+    public IReadOnlyList<SessionInfo> ActiveSessions()
+    {
+        var now = DateTime.UtcNow;
+        var list = new List<SessionInfo>(_sessions.Count);
+        foreach (var kv in _sessions)
+        {
+            var r = kv.Value;
+            list.Add(new SessionInfo(
+                SessionId: kv.Key[..Math.Min(16, kv.Key.Length)].ToLowerInvariant(),
+                RemoteIp: r.RemoteIp,
+                ClientKey: r.ClientKey,
+                StartedUtc: r.StartedUtc,
+                UptimeSeconds: (long)(now - r.StartedUtc).TotalSeconds,
+                BytesToClient: r.Session.BytesSent,
+                BytesFromClient: r.Session.BytesReceived,
+                Carriers: r.Session.CarrierCount,
+                Streams: r.Session.StreamCount));
+        }
+
+        return list;
+    }
+
+    /// <summary>Агрегированная статистика сервера.</summary>
+    public ServerStats Stats()
+    {
+        var s = ActiveSessions();
+        long toC = 0, fromC = 0;
+        int streams = 0;
+        foreach (var x in s)
+        {
+            toC += x.BytesToClient;
+            fromC += x.BytesFromClient;
+            streams += x.Streams;
+        }
+
+        return new ServerStats(s.Count, toC, fromC, streams);
     }
 
     public async ValueTask DisposeAsync()
