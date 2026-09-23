@@ -84,17 +84,16 @@ public sealed class TunnelService : IAsyncDisposable
                 $"--device {device} --proxy {proxy} --loglevel {options.Tun2SocksLogLevel}", m => Log?.Invoke(this, m),
                 workDir);
             int tunIndex = await WaitForTunAsync(options.TunDeviceName, ct).ConfigureAwait(false);
-
             
             await _net.ConfigureTunAsync(options, tunIndex, ct).ConfigureAwait(false);
             await _net.AddDefaultViaTunAsync(options, ct).ConfigureAwait(false);
             _defaultRouteAdded = true;
-            
+
             await ApplyBypassAsync(options, ct).ConfigureAwait(false);
 
             SetStatus(TunnelStatus.Connected);
             Info("VPN-режим включён: весь трафик идёт через туннель.");
-            
+
             _watchdogCts = new CancellationTokenSource();
             _watchdog = Task.Run(() => WatchdogAsync(_watchdogCts.Token));
         }
@@ -261,8 +260,11 @@ public sealed class TunnelService : IAsyncDisposable
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(e => ResolveAsync(e, ct))).ConfigureAwait(false)
             : null;
+        KeyPair clientKey = options.ClientPrivateKeyHex is { Length: > 0 } hex
+            ? new KeyPair(Convert.FromHexString(hex), X25519.ScalarMultBase(Convert.FromHexString(hex)))
+            : X25519.GenerateKeyPair();
         return await ChameleonClient.StartAsync(
-                serverEndpoint, X25519.GenerateKeyPair(), Convert.FromHexString(options.ServerPublicKeyHex),
+                serverEndpoint, clientKey, Convert.FromHexString(options.ServerPublicKeyHex),
                 socksEndpoint, carrier: BcTlsCarrier.Client(options.Sni), extraCarrierEndpoints: extras,
                 cancellationToken: ct)
             .ConfigureAwait(false);
@@ -277,7 +279,7 @@ public sealed class TunnelService : IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
-            ChameleonClient? client = _client;
+            var client = _client;
             if (client is null) return;
 
             try

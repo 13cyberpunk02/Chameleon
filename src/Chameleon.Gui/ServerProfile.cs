@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using System.Text.Json;
+using Chameleon.Core.Crypto;
 using Chameleon.Core.Proxy;
 using Chameleon.Gui.Settings;
 using Chameleon.Tunnel;
@@ -30,7 +32,7 @@ public sealed class ServerProfile
         int port = i > 0 && int.TryParse(Server[(i + 1)..], out int p) ? p : 443;
         return new ChameleonLink(host, port, ServerPublicKeyHex,
             string.IsNullOrWhiteSpace(Sni) ? host : Sni,
-            System.Array.Empty<string>(), string.IsNullOrWhiteSpace(Name) ? null : Name).Build();
+            [], string.IsNullOrWhiteSpace(Name) ? null : Name).Build();
     }
 }
 
@@ -39,12 +41,21 @@ public sealed class ProfileStore
 {
     public List<ServerProfile> Profiles { get; set; } = [];
     public int SelectedIndex { get; set; } = 0;
-    
+
+    // Общие (не привязаны к серверу)
     public string Socks { get; set; } = "127.0.0.1:1080";
     public string Tun2SocksPath { get; set; } = "";
     public string LogLevel { get; set; } = "error";
     public bool AutoConnect { get; set; } = false;
     public List<BypassRule> BypassRules { get; set; } = [];
+    public string ClientPrivateKeyHex { get; set; } = "";
+
+    /// <summary>Публичный ключ клиента (идентичность для allowlist сервера).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ClientPublicKeyHex =>
+        string.IsNullOrEmpty(ClientPrivateKeyHex)
+            ? ""
+            : Convert.ToHexString(X25519.ScalarMultBase(Convert.FromHexString(ClientPrivateKeyHex))).ToLowerInvariant();
 
     private static string Path => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Chameleon", "profiles.json");
@@ -54,16 +65,25 @@ public sealed class ProfileStore
 
     public static ProfileStore Load()
     {
+        ProfileStore store;
         try
         {
-            if (File.Exists(Path)) return JsonSerializer.Deserialize<ProfileStore>(File.ReadAllText(Path)) ?? Migrate();
+            store = File.Exists(Path)
+                ? JsonSerializer.Deserialize<ProfileStore>(File.ReadAllText(Path)) ?? Migrate()
+                : Migrate();
         }
         catch
         {
-            // ignored
+            store = Migrate();
         }
 
-        return Migrate();
+        if (string.IsNullOrEmpty(store.ClientPrivateKeyHex))
+        {
+            store.ClientPrivateKeyHex = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+            store.Save();
+        }
+
+        return store;
     }
 
     public void Save()
@@ -105,7 +125,7 @@ public sealed class ProfileStore
         }
         catch
         {
-            // 
+            // ignored
         }
 
         return store;

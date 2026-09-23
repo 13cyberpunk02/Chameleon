@@ -6,7 +6,7 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="18" MaxWidth="560" HorizontalAlignment="Left">
             <TextBlock Classes="h1" Text="Настройки" />
-
+            
             <StackPanel Spacing="6">
                 <TextBlock Text="Путь к tun2socks" Classes="label" />
                 <Grid ColumnDefinitions="*,Auto">
@@ -16,24 +16,37 @@
                             Command="{Binding BrowseTun2SocksCommand}" />
                 </Grid>
             </StackPanel>
-
+            
             <StackPanel Spacing="6">
                 <TextBlock Text="Локальный SOCKS5" Classes="label" />
                 <TextBox Text="{Binding Socks}" PlaceholderText="127.0.0.1:1080" />
             </StackPanel>
-
+            
             <StackPanel Spacing="6">
                 <TextBlock Text="Уровень логов tun2socks" Classes="label" />
                 <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel, Mode=TwoWay}"
                           MinWidth="160" />
             </StackPanel>
-
+            
             <StackPanel Spacing="10" Margin="0,4,0,0">
                 <CheckBox Content="Авто подключение при запуске" IsChecked="{Binding AutoConnect}" />
                 <CheckBox Content="Автозапуск с Windows" IsChecked="{Binding AutoStart}"
                           IsEnabled="{Binding AutoStartSupported}"
                           ToolTip.Tip="Запускать Chameleon при входе в систему (только Windows)" />
             </StackPanel>
+
+            <Border Classes="card" Margin="0,4,0,0">
+                <StackPanel Spacing="6">
+                    <TextBlock Classes="label"
+                               Text="Ваш ключ клиента (ID) — передайте администратору сервера для доступа" />
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Column="0" Text="{Binding ClientPublicKey}" IsReadOnly="True"
+                                 FontFamily="Consolas,monospace" FontSize="12" />
+                        <Button Grid.Column="1" Content="Копировать" Margin="8,0,0,0"
+                                Command="{Binding CopyClientKeyCommand}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <TextBlock Classes="subtitle" Text="{Binding Hint}" Margin="0,4,0,0" />
         </StackPanel>

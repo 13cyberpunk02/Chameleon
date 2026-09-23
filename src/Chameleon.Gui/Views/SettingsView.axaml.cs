@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Chameleon.Gui.ViewModels;
@@ -13,10 +14,17 @@ public partial class SettingsView : UserControl
     {
         base.OnLoaded(e);
         if (DataContext is SettingsViewModel vm)
+        {
             vm.PickTun2SocksFile = PickAsync;
+            var top = TopLevel.GetTopLevel(this);
+            vm.SetClipboard = async text =>
+            {
+                if (top?.Clipboard is not null) await top.Clipboard.SetTextAsync(text);
+            };
+        }
     }
 
-    private async Task<string?> PickAsync()
+    private async System.Threading.Tasks.Task<string?> PickAsync()
     {
         var top = TopLevel.GetTopLevel(this);
         if (top is null) return null;

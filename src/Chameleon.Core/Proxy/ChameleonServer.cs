@@ -32,12 +32,13 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly TrafficShaper? _shaper;
     private readonly ServerEventLog? _events;
     private readonly bool _proxyProtocol;
+    private readonly ClientRegistry? _clients;
     private readonly ConcurrentDictionary<string, Registered> _sessions = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
     private ChameleonServer(TcpListener listener, KeyPair serverStatic, CarrierWrapper? carrier, DnsEndPoint? decoy,
-        TrafficShaper? shaper, ServerEventLog? events, bool proxyProtocol)
+        TrafficShaper? shaper, ServerEventLog? events, bool proxyProtocol, ClientRegistry? clients)
     {
         _listener = listener;
         _serverStatic = serverStatic;
@@ -46,17 +47,20 @@ public sealed class ChameleonServer : IAsyncDisposable
         _shaper = shaper;
         _events = events;
         _proxyProtocol = proxyProtocol;
+        _clients = clients;
     }
 
     public IPEndPoint EndPoint => (IPEndPoint)_listener.LocalEndpoint;
 
     public static ChameleonServer Start(
         IPEndPoint endPoint, KeyPair serverStatic, CarrierWrapper? carrier = null, DnsEndPoint? decoy = null,
-        TrafficShaper? shaper = null, ServerEventLog? events = null, bool proxyProtocol = false)
+        TrafficShaper? shaper = null, ServerEventLog? events = null, bool proxyProtocol = false,
+        ClientRegistry? clients = null)
     {
         var listener = new TcpListener(endPoint);
         listener.Start();
-        var server = new ChameleonServer(listener, serverStatic, carrier, decoy, shaper, events, proxyProtocol);
+        var server =
+            new ChameleonServer(listener, serverStatic, carrier, decoy, shaper, events, proxyProtocol, clients);
         server._acceptLoop = Task.Run(() => server.AcceptLoopAsync(server._cts.Token));
         return server;
     }
@@ -163,6 +167,14 @@ public sealed class ChameleonServer : IAsyncDisposable
 
         var result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
+
+        string clientKeyFull = Convert.ToHexString(result.RemoteStaticPublic).ToLowerInvariant();
+        if (_clients is not null && !_clients.IsAllowed(clientKeyFull))
+        {
+            _events?.Add("denied", remoteIp, $"клиент {clientKeyFull[..16]}… не в списке разрешённых");
+            await carrier.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
 
         var channel = new FrameChannel(carrier);
         var session = ChameleonSession.Start(channel, isClient: false, _shaper);
@@ -368,7 +380,7 @@ public sealed class ChameleonServer : IAsyncDisposable
                 StartedUtc: r.StartedUtc,
                 UptimeSeconds: (long)(now - r.StartedUtc).TotalSeconds,
                 BytesToClient: r.Session.BytesSent,
-                BytesFromClient: r.Session.BytesReceived,
+                BytesFromClient: r.Session.BytesReceived, 
                 Carriers: r.Session.CarrierCount,
                 Streams: r.Session.StreamCount));
         }

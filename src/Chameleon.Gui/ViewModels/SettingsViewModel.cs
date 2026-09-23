@@ -5,7 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace Chameleon.Gui.ViewModels;
 
-/// <summary>Страница «Настройки»: tun2socks, SOCKS, автозапуск, автоподключение, логи.</summary>
+/// <summary>Страница «Настройки»: tun2socks, SOCKS, автозапуск, авто подключение, логи.</summary>
 public sealed partial class SettingsViewModel : PageViewModel
 {
     public override string Title => "Настройки";
@@ -22,6 +22,11 @@ public sealed partial class SettingsViewModel : PageViewModel
     [ObservableProperty] private bool _autoConnect;
     [ObservableProperty] private bool _autoStart;
     [ObservableProperty] private string _hint = "";
+
+    /// <summary>Публичный ключ этого клиента (передать администратору сервера для allowlist).</summary>
+    public string ClientPublicKey => _store.ClientPublicKeyHex;
+
+    public Func<string, Task>? SetClipboard { get; set; }
 
     public string[] LogLevels { get; } = { "error", "warn", "info", "debug", "silent" };
 
@@ -45,6 +50,13 @@ public sealed partial class SettingsViewModel : PageViewModel
     }
 
     [RelayCommand]
+    private async Task CopyClientKeyAsync()
+    {
+        if (SetClipboard is not null) await SetClipboard(ClientPublicKey);
+        Hint = "Ключ клиента скопирован - передайте его администратору сервера";
+    }
+
+    [RelayCommand]
     private async Task BrowseTun2SocksAsync()
     {
         if (PickTun2SocksFile is null) return;
@@ -56,7 +68,6 @@ public sealed partial class SettingsViewModel : PageViewModel
             : "ВНИМАНИЕ: рядом с tun2socks нет wintun.dll - положите её в ту же папку";
     }
 
-    // Автосохранение при изменении полей
     partial void OnTun2SocksPathChanged(string value)
     {
         _store.Tun2SocksPath = value;

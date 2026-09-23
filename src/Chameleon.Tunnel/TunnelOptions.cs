@@ -3,7 +3,7 @@
 /// <summary>Настройки VPN-режима (весь трафик через TUN -> наш SOCKS5 -> сервер).</summary>
 public sealed class TunnelOptions
 {
-    /// <summary>Адрес сервера, host:port (например dl.example.site:443).</summary>
+    /// <summary>Адрес сервера, host:port (например dl.cyberius.site:443).</summary>
     public required string Server { get; init; }
 
     /// <summary>Публичный статический ключ сервера (hex).</summary>
@@ -44,6 +44,10 @@ public sealed class TunnelOptions
 
     /// <summary>Split-tunnel: адреса, идущие НАПРЯМУЮ мимо туннеля (IP/CIDR/домен).</summary>
     public IReadOnlyList<BypassRule>? BypassRules { get; init; }
+
+    /// <summary>Постоянный статический ключ клиента (hex приватной части) - идентичность
+    /// для allowlist на сервере. Если пусто - генерируется случайный (аккаунты не работают).</summary>
+    public string? ClientPrivateKeyHex { get; init; }
 }
 
 public enum TunnelStatus
