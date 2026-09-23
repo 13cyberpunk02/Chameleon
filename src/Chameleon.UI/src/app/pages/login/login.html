@@ -1,0 +1,17 @@
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="brand big">🦎 <span>Chameleon</span></div>
+    <p class="muted">Панель управления сервером</p>
+
+    <label>API-токен</label>
+    <input type="password" [(ngModel)]="token" placeholder="Bearer-токен сервера"
+           (keyup.enter)="submit()" autofocus />
+
+    @if (error()) { <p class="error">{{ error() }}</p> }
+
+    <button class="accent" (click)="submit()" [disabled]="busy()">
+      {{ busy() ? 'Проверка…' : 'Войти' }}
+    </button>
+    <p class="hint">Токен = CHAMELEON_API_TOKEN сервера. Хранится локально в браузере.</p>
+  </div>
+</div>

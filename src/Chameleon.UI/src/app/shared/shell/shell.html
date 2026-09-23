@@ -1,0 +1,11 @@
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">🦎 <span>Chameleon</span></div>
+    <nav>
+      <a routerLink="/dashboard" routerLinkActive="active">📊 Дашборд</a>
+      <a routerLink="/clients" routerLinkActive="active">👤 Клиенты</a>
+    </nav>
+    <button class="logout" (click)="logout()">Выйти</button>
+  </aside>
+  <main class="content"><router-outlet /></main>
+</div>

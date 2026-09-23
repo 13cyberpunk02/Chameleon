@@ -1,1 +1,107 @@
-/* You can add global styles to this file, and also import other style files */
+:root {
+  --bg: #0d1117;
+  --bg-elev: #161b22;
+  --card: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #3fb950;
+  --accent-hover: #4fcb60;
+  --danger: #f85149;
+  --warn: #d29922;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+}
+
+h1 { font-size: 22px; margin: 0 0 16px; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.error { color: var(--danger); }
+.warn { color: var(--warn); }
+
+/* Кнопки */
+button {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: background .15s, border-color .15s;
+}
+button:hover { background: #21262d; }
+button.accent { background: var(--accent); border-color: var(--accent); color: #06210c; font-weight: 600; }
+button.accent:hover { background: var(--accent-hover); }
+button.danger { color: var(--danger); border-color: transparent; background: transparent; }
+button.danger:hover { background: rgba(248,81,73,.12); }
+button:disabled { opacity: .5; cursor: default; }
+
+/* Поля */
+input, select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
+
+/* Карточки */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+
+/* Логин */
+.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
+.login-card { width: 360px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 28px; }
+.brand { font-size: 18px; font-weight: 700; }
+.brand span { color: var(--text); }
+.brand.big { font-size: 26px; margin-bottom: 4px; }
+.login-card .hint { color: var(--muted); font-size: 11px; margin-top: 14px; }
+.login-card button { width: 100%; margin-top: 18px; }
+
+/* Оболочка (sidebar + контент) */
+.layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+.sidebar { background: var(--bg-elev); border-right: 1px solid var(--border);
+  padding: 18px 12px; display: flex; flex-direction: column; }
+.sidebar .brand { padding: 6px 10px 18px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.sidebar nav a {
+  color: var(--text); text-decoration: none; padding: 10px 12px; border-radius: 8px; font-size: 14px;
+}
+.sidebar nav a:hover { background: #21262d; }
+.sidebar nav a.active { background: rgba(63,185,80,.18); font-weight: 600; }
+.sidebar .logout { margin-top: auto; }
+.content { padding: 28px; overflow: auto; }
+
+/* Таблицы */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+tr:last-child td { border-bottom: none; }
+
+/* Метрики-карточки */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.metric .label { color: var(--muted); font-size: 12px; }
+.metric .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+
+/* Чипы статусов событий */
+.chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; }
+.chip.connect { background: rgba(63,185,80,.18); color: var(--accent); }
+.chip.disconnect { background: rgba(139,148,158,.18); color: var(--muted); }
+.chip.probe { background: rgba(210,153,34,.18); color: var(--warn); }
+.chip.denied { background: rgba(248,81,73,.18); color: var(--danger); }
+.chip.join { background: rgba(88,166,255,.18); color: #58a6ff; }
+
+.mono { font-family: 'Consolas', 'Menlo', monospace; }
