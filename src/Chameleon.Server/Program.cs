@@ -1,4 +1,11 @@
-﻿// Сервер Chameleon. Конфигурация через переменные окружения (удобно для Docker):
+﻿using System.Net;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using Chameleon.Core.Crypto;
+using Chameleon.Core.Proxy;
+using Chameleon.Core.Transport;
+
+// Сервер Chameleon. Конфигурация через переменные окружения (удобно для Docker):
 //   CHAMELEON_LISTEN   адрес прослушивания        (по умолчанию 0.0.0.0:8443)
 //   CHAMELEON_KEY_FILE файл со статическим ключом  (по умолчанию /data/server.key)
 //   CHAMELEON_SNI      домен прикрытия / CN серта  (по умолчанию www.example-cdn.com)
@@ -6,29 +13,24 @@
 //   CHAMELEON_CERT_PASS пароль к .pfx
 //   CHAMELEON_DECOY    сайт-декой host:port        (иначе - статическая заглушка)
 
-using System.Net;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
-using Chameleon.Core.Crypto;
-using Chameleon.Core.Proxy;
-using Chameleon.Core.Transport;
-
 string listen = Env("CHAMELEON_LISTEN", "0.0.0.0:8443");
 string keyFile = Env("CHAMELEON_KEY_FILE", "/data/server.key");
 string sni = Env("CHAMELEON_SNI", "www.example-cdn.com");
-string publicAddr = Env("CHAMELEON_PUBLIC", $"{sni}:443");
+string publicAddr = Env("CHAMELEON_PUBLIC", $"{sni}:443"); // адрес, на который подключается клиент
 string profileName = Env("CHAMELEON_NAME", "Chameleon");
 string? certPfx = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PFX");
 string? certPass = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PASS");
 string? certPem = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PEM");
 string? keyPem = Environment.GetEnvironmentVariable("CHAMELEON_KEY_PEM");
 string? decoy = Environment.GetEnvironmentVariable("CHAMELEON_DECOY");
+bool proxyProtocol = Env("CHAMELEON_PROXY_PROTOCOL", "0") is "1" or "true";
 
 KeyPair serverStatic = LoadOrCreateKey(keyFile);
 Console.WriteLine("=== Chameleon server ===");
 Console.WriteLine($"listen : {listen}");
 Console.WriteLine($"sni    : {sni}");
 Console.WriteLine($"decoy  : {decoy ?? "(статическая страница)"}");
+Console.WriteLine($"proxy-protocol: {(proxyProtocol ? "включён (ждём PROXY-заголовок от nginx)" : "выключен")}");
 Console.WriteLine();
 string pubKeyHex = Convert.ToHexString(serverStatic.Public).ToLowerInvariant();
 Console.WriteLine("СТАТИЧЕСКИЙ ПУБЛИЧНЫЙ КЛЮЧ СЕРВЕРА:");
@@ -42,12 +44,12 @@ using X509Certificate2 cert = LoadCert(certPem, keyPem, certPfx, certPass, sni);
 IPEndPoint endpoint = ParseListen(listen);
 DnsEndPoint? decoyEndpoint = decoy is null ? null : ParseDecoy(decoy);
 
-var events = new Chameleon.Core.Proxy.ServerEventLog();
+var events = new ServerEventLog();
 events.Logged += e =>
     Console.WriteLine($"{e.TimeUtc:yyyy-MM-dd HH:mm:ss}Z  [{e.Event,-10}] {e.RemoteIp,-15}  {e.Detail}");
 
-await using var server =
-    ChameleonServer.Start(endpoint, serverStatic, TlsCarrier.Server(cert), decoyEndpoint, events: events);
+await using var server = ChameleonServer.Start(endpoint, serverStatic, TlsCarrier.Server(cert), decoyEndpoint,
+    events: events, proxyProtocol: proxyProtocol);
 Console.WriteLine($"сервер запущен на {server.EndPoint}. Ctrl+C для остановки.");
 
 using var statsTimer = new Timer(_ =>
@@ -92,7 +94,7 @@ static X509Certificate2 LoadCert(string? certPem, string? keyPem, string? pfx, s
         using X509Certificate2 fromPem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
         return LoadPfxBytes(fromPem.Export(X509ContentType.Pfx), null);
     }
-    
+
     if (pfx is { Length: > 0 } && File.Exists(pfx))
         return LoadPfxBytes(File.ReadAllBytes(pfx), pass);
     return TlsCarrier.CreateSelfSignedCertificate(sni);
@@ -121,7 +123,7 @@ static string BuildLink(string publicAddr, string keyHex, string sni, string nam
     int i = publicAddr.LastIndexOf(':');
     string host = i > 0 ? publicAddr[..i] : publicAddr;
     int port = i > 0 && int.TryParse(publicAddr[(i + 1)..], out int p) ? p : 443;
-    return new Chameleon.Core.Proxy.ChameleonLink(host, port, keyHex, sni,
+    return new ChameleonLink(host, port, keyHex, sni,
         [], name).Build();
 }
 

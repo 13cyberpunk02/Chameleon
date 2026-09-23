@@ -31,12 +31,13 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly DnsEndPoint? _decoy;
     private readonly TrafficShaper? _shaper;
     private readonly ServerEventLog? _events;
+    private readonly bool _proxyProtocol;
     private readonly ConcurrentDictionary<string, Registered> _sessions = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
     private ChameleonServer(TcpListener listener, KeyPair serverStatic, CarrierWrapper? carrier, DnsEndPoint? decoy,
-        TrafficShaper? shaper, ServerEventLog? events)
+        TrafficShaper? shaper, ServerEventLog? events, bool proxyProtocol)
     {
         _listener = listener;
         _serverStatic = serverStatic;
@@ -44,17 +45,18 @@ public sealed class ChameleonServer : IAsyncDisposable
         _decoy = decoy;
         _shaper = shaper;
         _events = events;
+        _proxyProtocol = proxyProtocol;
     }
 
     public IPEndPoint EndPoint => (IPEndPoint)_listener.LocalEndpoint;
 
     public static ChameleonServer Start(
         IPEndPoint endPoint, KeyPair serverStatic, CarrierWrapper? carrier = null, DnsEndPoint? decoy = null,
-        TrafficShaper? shaper = null, ServerEventLog? events = null)
+        TrafficShaper? shaper = null, ServerEventLog? events = null, bool proxyProtocol = false)
     {
         var listener = new TcpListener(endPoint);
         listener.Start();
-        var server = new ChameleonServer(listener, serverStatic, carrier, decoy, shaper, events);
+        var server = new ChameleonServer(listener, serverStatic, carrier, decoy, shaper, events, proxyProtocol);
         server._acceptLoop = Task.Run(() => server.AcceptLoopAsync(server._cts.Token));
         return server;
     }
@@ -87,6 +89,13 @@ public sealed class ChameleonServer : IAsyncDisposable
         Stream? carrier = null;
         try
         {
+            if (_proxyProtocol)
+            {
+                using var pre = new NetworkStream(socket, ownsSocket: false);
+                var (pp, _) = await ProxyProtocol.TryReadAsync(pre, cancellationToken).ConfigureAwait(false);
+                if (pp.Present && pp.SourceIp is not null) remoteIp = pp.SourceIp;
+            }
+
             carrier = _carrier is null
                 ? new NetworkStream(socket, ownsSocket: true)
                 : await _carrier(socket, cancellationToken).ConfigureAwait(false);
@@ -141,7 +150,6 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         byte[] message1 = await Framing.ReadExactCountAsync(carrier, len, cancellationToken).ConfigureAwait(false);
         var handshake = NoiseIkHandshake.CreateResponder(_serverStatic);
-        HandshakeResult result;
         try
         {
             handshake.ReadMessage1(message1);
@@ -153,7 +161,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             return;
         }
 
-        result = handshake.WriteMessage2(out byte[] message2);
+        var result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
 
         var channel = new FrameChannel(carrier);
