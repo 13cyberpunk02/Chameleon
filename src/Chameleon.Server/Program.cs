@@ -2,9 +2,9 @@
 //   CHAMELEON_LISTEN   адрес прослушивания        (по умолчанию 0.0.0.0:8443)
 //   CHAMELEON_KEY_FILE файл со статическим ключом  (по умолчанию /data/server.key)
 //   CHAMELEON_SNI      домен прикрытия / CN серта  (по умолчанию www.example-cdn.com)
-//   CHAMELEON_CERT_PFX путь к .pfx (боевой серт)   (иначе - самоподписанный по SNI)
+//   CHAMELEON_CERT_PFX путь к .pfx (боевой серт)   (иначе — самоподписанный по SNI)
 //   CHAMELEON_CERT_PASS пароль к .pfx
-//   CHAMELEON_DECOY    сайт-декой host:port        (иначе - статическая заглушка)
+//   CHAMELEON_DECOY    сайт-декой host:port        (иначе — статическая заглушка)
 
 using System.Net;
 using System.Security.Cryptography;
@@ -12,6 +12,7 @@ using System.Security.Cryptography.X509Certificates;
 using Chameleon.Core.Crypto;
 using Chameleon.Core.Proxy;
 using Chameleon.Core.Transport;
+using Chameleon.Server;
 
 string listen = Env("CHAMELEON_LISTEN", "0.0.0.0:8443");
 string keyFile = Env("CHAMELEON_KEY_FILE", "/data/server.key");
@@ -38,7 +39,7 @@ string pubKeyHex = Convert.ToHexString(serverStatic.Public).ToLowerInvariant();
 Console.WriteLine("СТАТИЧЕСКИЙ ПУБЛИЧНЫЙ КЛЮЧ СЕРВЕРА:");
 Console.WriteLine($"  {pubKeyHex}");
 Console.WriteLine();
-Console.WriteLine("КОНФИГ-ССЫЛКА (скопируйте целиком в клиент -> «Вставить из буфера»):");
+Console.WriteLine("КОНФИГ-ССЫЛКА (скопируйте целиком в клиент → «Вставить из буфера»):");
 Console.WriteLine($"  {BuildLink(publicAddr, pubKeyHex, sni, profileName)}");
 Console.WriteLine();
 
@@ -53,13 +54,24 @@ foreach (var k in (Environment.GetEnvironmentVariable("CHAMELEON_CLIENTS") ?? ""
 Console.WriteLine(
     $"allowlist: {(clients.Enforced ? $"включён, разрешённых клиентов: {clients.Count}" : "выключен (принимаем любого)")}");
 
-var events = new Chameleon.Core.Proxy.ServerEventLog();
+var events = new ServerEventLog();
 events.Logged += e =>
     Console.WriteLine($"{e.TimeUtc:yyyy-MM-dd HH:mm:ss}Z  [{e.Event,-10}] {e.RemoteIp,-15}  {e.Detail}");
 
 await using var server = ChameleonServer.Start(endpoint, serverStatic, TlsCarrier.Server(cert), decoyEndpoint,
     events: events, proxyProtocol: proxyProtocol, clients: clients);
 Console.WriteLine($"сервер запущен на {server.EndPoint}. Ctrl+C для остановки.");
+
+string? apiToken = Environment.GetEnvironmentVariable("CHAMELEON_API_TOKEN");
+string apiListen = Env("CHAMELEON_API_LISTEN", "http://+:9090/");
+ManagementApi? api = null;
+if (!string.IsNullOrWhiteSpace(apiToken))
+{
+    api = new ManagementApi(apiListen, apiToken, server, events, clients, pubKeyHex, sni);
+    api.Start();
+    Console.WriteLine($"management API: {apiListen} (Bearer-токен задан)");
+}
+else Console.WriteLine("management API: выключен (задай CHAMELEON_API_TOKEN, чтобы включить)");
 
 using var statsTimer = new Timer(_ =>
 {
@@ -76,6 +88,7 @@ Console.CancelKeyPress += (_, e) =>
     stop.TrySetResult();
 };
 await stop.Task;
+api?.Dispose();
 
 static string Env(string name, string fallback) =>
     Environment.GetEnvironmentVariable(name) is { Length: > 0 } v ? v : fallback;
@@ -92,7 +105,7 @@ static KeyPair LoadOrCreateKey(string path)
     string? dir = Path.GetDirectoryName(path);
     if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
     File.WriteAllText(path, Convert.ToHexString(fresh).ToLowerInvariant());
-    Console.WriteLine($"(сгенерирован новый ключ сервера -> {path})");
+    Console.WriteLine($"(сгенерирован новый ключ сервера → {path})");
     return new KeyPair(fresh, X25519.ScalarMultBase(fresh));
 }
 
@@ -103,7 +116,7 @@ static X509Certificate2 LoadCert(string? certPem, string? keyPem, string? pfx, s
         using X509Certificate2 fromPem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
         return LoadPfxBytes(fromPem.Export(X509ContentType.Pfx), null);
     }
-
+    
     if (pfx is { Length: > 0 } && File.Exists(pfx))
         return LoadPfxBytes(File.ReadAllBytes(pfx), pass);
     return TlsCarrier.CreateSelfSignedCertificate(sni);
@@ -132,8 +145,8 @@ static string BuildLink(string publicAddr, string keyHex, string sni, string nam
     int i = publicAddr.LastIndexOf(':');
     string host = i > 0 ? publicAddr[..i] : publicAddr;
     int port = i > 0 && int.TryParse(publicAddr[(i + 1)..], out int p) ? p : 443;
-    return new Chameleon.Core.Proxy.ChameleonLink(host, port, keyHex, sni,
-        System.Array.Empty<string>(), name).Build();
+    return new ChameleonLink(host, port, keyHex, sni,
+        [], name).Build();
 }
 
 static string Bytes(long b)
