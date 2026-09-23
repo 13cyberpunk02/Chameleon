@@ -42,7 +42,12 @@ using X509Certificate2 cert = LoadCert(certPem, keyPem, certPfx, certPass, sni);
 IPEndPoint endpoint = ParseListen(listen);
 DnsEndPoint? decoyEndpoint = decoy is null ? null : ParseDecoy(decoy);
 
-await using var server = ChameleonServer.Start(endpoint, serverStatic, TlsCarrier.Server(cert), decoyEndpoint);
+var events = new Chameleon.Core.Proxy.ServerEventLog();
+events.Logged += e =>
+    Console.WriteLine($"{e.TimeUtc:yyyy-MM-dd HH:mm:ss}Z  [{e.Event,-10}] {e.RemoteIp,-15}  {e.Detail}");
+
+await using var server =
+    ChameleonServer.Start(endpoint, serverStatic, TlsCarrier.Server(cert), decoyEndpoint, events: events);
 Console.WriteLine($"сервер запущен на {server.EndPoint}. Ctrl+C для остановки.");
 
 var stop = new TaskCompletionSource();
@@ -85,9 +90,8 @@ static X509Certificate2 LoadCert(string? certPem, string? keyPem, string? pfx, s
     return TlsCarrier.CreateSelfSignedCertificate(sni);
 }
 
-static X509Certificate2 LoadPfxBytes(byte[] pfx, string? pass) => 
+static X509Certificate2 LoadPfxBytes(byte[] pfx, string? pass) =>
     X509CertificateLoader.LoadPkcs12(pfx, pass, X509KeyStorageFlags.Exportable);
-    
 
 static IPEndPoint ParseListen(string s)
 {
@@ -109,6 +113,6 @@ static string BuildLink(string publicAddr, string keyHex, string sni, string nam
     int i = publicAddr.LastIndexOf(':');
     string host = i > 0 ? publicAddr[..i] : publicAddr;
     int port = i > 0 && int.TryParse(publicAddr[(i + 1)..], out int p) ? p : 443;
-    return new Chameleon.Core.Proxy.ChameleonLink(host, port, keyHex, sni,
+    return new ChameleonLink(host, port, keyHex, sni,
         [], name).Build();
 }

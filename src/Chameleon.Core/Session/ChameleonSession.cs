@@ -94,7 +94,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     }
 
     private void StartCarrierLoop(Carrier c) => c.Loop = Task.Run(() => ReceiveLoopAsync(c, _cts.Token));
-
+    
 
     public async ValueTask<ChameleonStream> OpenStreamAsync(
         string host, int port, StreamKind kind = StreamKind.Tcp, CancellationToken cancellationToken = default)
@@ -140,10 +140,10 @@ public sealed class ChameleonSession : IAsyncDisposable
         {
             int length = build(scratch);
             length = Pad(scratch, length);
-
+            
             VarInt.TryRead(scratch, out ulong pn, out _);
             byte[] plaintext = scratch[..length].ToArray();
-
+            
             await _cc.AcquireAsync(cancellationToken).ConfigureAwait(false);
             _unacked[pn] = new InFlight(plaintext, length, Environment.TickCount64, Retransmitted: false);
 
@@ -191,7 +191,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         return length;
     }
 
-
+    
     private async Task RetransmitLoopAsync(CancellationToken cancellationToken)
     {
         try
@@ -210,7 +210,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                     await SendOnAnyAsync(f.Plaintext, f.Length, cancellationToken).ConfigureAwait(false);
                 }
 
-                if (loss) _cc.OnLoss(); 
+                if (loss) _cc.OnLoss();
             }
         }
         catch (OperationCanceledException)
@@ -332,6 +332,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         }
     }
 
+    
     private async Task ReceiveLoopAsync(Carrier carrier, CancellationToken cancellationToken)
     {
         byte[] buffer = new byte[Crypto.RecordFormat.MaxPlaintext];
@@ -429,7 +430,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                 try
                 {
                     int length = BuildCover(buffer, NextPacketNumber(), size);
-                    await SendOnAnyAsync([.. buffer[..length]], length, cancellationToken).ConfigureAwait(false);
+                    await SendOnAnyAsync(buffer[..length].ToArray(), length, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -492,6 +493,21 @@ public sealed class ChameleonSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
+        // Сначала закрываем каналы - это разблокирует receive-циклы, зависшие на
+        // чтении (BC-TLS чтение синхронное и может не реагировать на отмену токена).
+        // Иначе await ниже ждал бы вечно (дедлок при отключении на BC-несущей).
+        foreach (var c in _carriers)
+        {
+            try
+            {
+                await c.Channel.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
         foreach (var t in new[] { _coverLoop, _rtoLoop, _ackLoop }.Concat(_carriers.Select(c => c.Loop)))
             if (t is not null)
             {
@@ -506,7 +522,6 @@ public sealed class ChameleonSession : IAsyncDisposable
             }
 
         foreach (var st in _streams.Values) st.CompleteInbound();
-        foreach (var c in _carriers) await c.Channel.DisposeAsync().ConfigureAwait(false);
         _cts.Dispose();
     }
 }

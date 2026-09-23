@@ -25,29 +25,31 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly CarrierWrapper? _carrier;
     private readonly DnsEndPoint? _decoy;
     private readonly TrafficShaper? _shaper;
+    private readonly ServerEventLog? _events;
     private readonly ConcurrentDictionary<string, Registered> _sessions = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
     private ChameleonServer(TcpListener listener, KeyPair serverStatic, CarrierWrapper? carrier, DnsEndPoint? decoy,
-        TrafficShaper? shaper)
+        TrafficShaper? shaper, ServerEventLog? events)
     {
         _listener = listener;
         _serverStatic = serverStatic;
         _carrier = carrier;
         _decoy = decoy;
         _shaper = shaper;
+        _events = events;
     }
 
     public IPEndPoint EndPoint => (IPEndPoint)_listener.LocalEndpoint;
 
     public static ChameleonServer Start(
         IPEndPoint endPoint, KeyPair serverStatic, CarrierWrapper? carrier = null, DnsEndPoint? decoy = null,
-        TrafficShaper? shaper = null)
+        TrafficShaper? shaper = null, ServerEventLog? events = null)
     {
         var listener = new TcpListener(endPoint);
         listener.Start();
-        var server = new ChameleonServer(listener, serverStatic, carrier, decoy, shaper);
+        var server = new ChameleonServer(listener, serverStatic, carrier, decoy, shaper, events);
         server._acceptLoop = Task.Run(() => server.AcceptLoopAsync(server._cts.Token));
         return server;
     }
@@ -76,6 +78,7 @@ public sealed class ChameleonServer : IAsyncDisposable
 
     private async Task HandleCarrierAsync(Socket socket, CancellationToken cancellationToken)
     {
+        string remoteIp = (socket.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "?";
         Stream? carrier = null;
         try
         {
@@ -90,7 +93,8 @@ public sealed class ChameleonServer : IAsyncDisposable
             byte[] prefix = new byte[2];
             if (!await ReadRecordingAsync(carrier, prefix, buffered, hs.Token).ConfigureAwait(false))
             {
-                await Cover(carrier, [.. buffered], cancellationToken).ConfigureAwait(false);
+                LogProbe(remoteIp, "нет данных");
+                await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -98,17 +102,18 @@ public sealed class ChameleonServer : IAsyncDisposable
 
             if (len == CarrierJoin.MessageLength)
             {
-                await HandleJoinAsync(carrier, hs.Token).ConfigureAwait(false);
+                await HandleJoinAsync(carrier, remoteIp, hs.Token).ConfigureAwait(false);
                 return;
             }
 
             if (len == NoiseIkHandshake.Message1Length)
             {
-                await HandleNewSessionAsync(carrier, prefix, len, cancellationToken).ConfigureAwait(false);
+                await HandleNewSessionAsync(carrier, prefix, len, remoteIp, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
-            await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
+            LogProbe(remoteIp, "не Noise/не join");
+            await Cover(carrier, [.. buffered], cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
         {
@@ -126,7 +131,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         }
     }
 
-    private async Task HandleNewSessionAsync(Stream carrier, byte[] prefix, int len,
+    private async Task HandleNewSessionAsync(Stream carrier, byte[] prefix, int len, string remoteIp,
         CancellationToken cancellationToken)
     {
         byte[] message1 = await Framing.ReadExactCountAsync(carrier, len, cancellationToken).ConfigureAwait(false);
@@ -137,6 +142,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         }
         catch (ChameleonProtocolException)
         {
+            LogProbe(remoteIp, "Noise не сошёлся");
             await Cover(carrier, [.. prefix, .. message1], cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -150,7 +156,10 @@ public sealed class ChameleonServer : IAsyncDisposable
 
         string sessionId = Convert.ToHexString(CarrierJoin.SessionId(result.SessionSecret));
         _sessions[sessionId] = new Registered(session, result.SessionSecret);
-        
+        string clientKey = Convert.ToHexString(result.RemoteStaticPublic)[..16].ToLowerInvariant();
+        _events?.Add("connect", remoteIp, $"новая сессия, client={clientKey}…, активных={_sessions.Count}");
+        var startedAt = DateTime.UtcNow;
+
         try
         {
             await session.Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -161,11 +170,14 @@ public sealed class ChameleonServer : IAsyncDisposable
         finally
         {
             _sessions.TryRemove(sessionId, out _);
+            var dur = DateTime.UtcNow - startedAt;
+            _events?.Add("disconnect", remoteIp,
+                $"сессия закрыта, {FormatDuration(dur)}, ↑{Human(session.BytesReceived)} ↓{Human(session.BytesSent)}, активных={_sessions.Count}");
             await session.DisposeAsync().ConfigureAwait(false);
         }
     }
 
-    private async Task HandleJoinAsync(Stream carrier, CancellationToken cancellationToken)
+    private async Task HandleJoinAsync(Stream carrier, string remoteIp, CancellationToken cancellationToken)
     {
         byte[] body = await Framing.ReadExactCountAsync(carrier, CarrierJoin.MessageLength, cancellationToken)
             .ConfigureAwait(false);
@@ -182,6 +194,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         await Framing.WriteFrameAsync(carrier, ack, cancellationToken).ConfigureAwait(false);
 
         reg.Session.AddCarrier(new FrameChannel(carrier));
+        _events?.Add("join", remoteIp, $"присоединена несущая (carrier {request.CarrierId})");
     }
 
     private async Task Cover(Stream carrier, byte[] buffered, CancellationToken cancellationToken)
@@ -289,6 +302,27 @@ public sealed class ChameleonServer : IAsyncDisposable
             }
         }
     }
+
+    private void LogProbe(string remoteIp, string why)
+        => _events?.Add("probe", remoteIp, $"чужак/зонд -> декой ({why})");
+
+    private static string Human(long bytes)
+    {
+        string[] u = ["B", "KB", "MB", "GB", "TB"];
+        double v = bytes;
+        int k = 0;
+        while (v >= 1024 && k < u.Length - 1)
+        {
+            v /= 1024;
+            k++;
+        }
+
+        return $"{v:0.#}{u[k]}";
+    }
+
+    private static string FormatDuration(TimeSpan t)
+        => t.TotalHours >= 1 ? $"{(int)t.TotalHours}h{t.Minutes:00}m" :
+            t.TotalMinutes >= 1 ? $"{t.Minutes}m{t.Seconds:00}s" : $"{t.Seconds}s";
 
     private static async Task<bool> ReadRecordingAsync(Stream stream, byte[] buffer, List<byte> recorder,
         CancellationToken cancellationToken)
