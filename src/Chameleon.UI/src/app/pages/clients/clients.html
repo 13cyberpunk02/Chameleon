@@ -1,1 +1,53 @@
-<h1>Клиенты</h1><p class="muted">(этап 3)</p>
+<h1>Клиенты (allowlist)</h1>
+<p class="muted sub">Разрешённые клиентские ключи. Изменения применяются сразу, без перезапуска сервера.</p>
+
+<!-- Добавление -->
+<div class="card add-row">
+  <div class="fields">
+    <input [(ngModel)]="newKey" placeholder="Публичный ключ клиента (hex, 64 симв.)" class="mono"/>
+    <input [(ngModel)]="newName" placeholder="Имя (напр. «Ноут Ивана»)"/>
+  </div>
+  <button class="accent" (click)="add()" [disabled]="busy()">Добавить</button>
+</div>
+
+@if (message()) {
+  <p class="msg" [class.err]="isError()">{{ message() }}</p>
+}
+
+<!-- Список -->
+<div class="card table-card">
+  @if (clients().length === 0) {
+    <p class="muted empty">Список пуст. Пока allowlist не включён на сервере (CHAMELEON_ALLOWLIST=1) — подключается
+      любой клиент.</p>
+  } @else {
+    <table>
+      <thead>
+      <tr>
+        <th>Имя</th>
+        <th>Ключ</th>
+        <th>Статус</th>
+        <th>Добавлен</th>
+        <th></th>
+      </tr>
+      </thead>
+      <tbody>
+        @for (c of clients(); track c.publicKeyHex) {
+          <tr [class.disabled]="!c.enabled">
+            <td>{{ c.name || '—' }}</td>
+            <td class="mono">{{ key(c.publicKeyHex) }}</td>
+            <td>
+                  <span class="chip" [class.on]="c.enabled" [class.off]="!c.enabled">
+                    {{ c.enabled ? 'включён' : 'выключен' }}
+                  </span>
+            </td>
+            <td class="muted">{{ date(c.addedUtc) }}</td>
+            <td class="actions">
+              <button (click)="toggle(c)">{{ c.enabled ? 'Выключить' : 'Включить' }}</button>
+              <button class="danger" (click)="remove(c)">Удалить</button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>

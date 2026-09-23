@@ -1,1 +1,92 @@
-<h1>Дашборд</h1><p class="muted">(этап 2)</p>
+<div class="head-row">
+  <h1>Дашборд</h1>
+  <span class="muted refresh">обновление каждые 3 с</span>
+</div>
+
+<!-- Метрики -->
+<div class="metrics">
+  <div class="card metric">
+    <div class="label">Активных сессий</div>
+    <div class="value">{{ stats()?.activeSessions ?? '—' }}</div>
+  </div>
+  <div class="card metric">
+    <div class="label">Потоков</div>
+    <div class="value">{{ stats()?.totalStreams ?? '—' }}</div>
+  </div>
+  <div class="card metric">
+    <div class="label">Клиентам ↓</div>
+    <div class="value">{{ stats() ? bytes(stats()!.totalBytesToClient) : '—' }}</div>
+  </div>
+  <div class="card metric">
+    <div class="label">От клиентов ↑</div>
+    <div class="value">{{ stats() ? bytes(stats()!.totalBytesFromClient) : '—' }}</div>
+  </div>
+</div>
+
+@if (error()) {
+  <div class="card error-box">{{ error() }}</div>
+}
+
+<!-- Активные сессии -->
+<h2>Активные сессии</h2>
+<div class="card table-card">
+  @if (sessions().length === 0) {
+    <p class="muted empty">Нет активных сессий</p>
+  } @else {
+    <table>
+      <thead>
+      <tr>
+        <th>IP</th>
+        <th>Клиент</th>
+        <th>Несущих</th>
+        <th>Потоков</th>
+        <th>↓ клиенту</th>
+        <th>↑ от клиента</th>
+        <th>Время</th>
+      </tr>
+      </thead>
+      <tbody>
+        @for (s of sessions(); track s.sessionId) {
+          <tr>
+            <td class="mono">{{ s.remoteIp }}</td>
+            <td class="mono">{{ key(s.clientKey) }}</td>
+            <td>{{ s.carriers }}</td>
+            <td>{{ s.streams }}</td>
+            <td>{{ bytes(s.bytesToClient) }}</td>
+            <td>{{ bytes(s.bytesFromClient) }}</td>
+            <td>{{ uptime(s.uptimeSeconds) }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>
+
+<!-- Лента событий -->
+<h2>События</h2>
+<div class="card table-card">
+  @if (events().length === 0) {
+    <p class="muted empty">Событий пока нет</p>
+  } @else {
+    <table>
+      <thead>
+      <tr>
+        <th>Время</th>
+        <th>Событие</th>
+        <th>IP</th>
+        <th>Детали</th>
+      </tr>
+      </thead>
+      <tbody>
+        @for (e of events(); track e.timeUtc + e.detail) {
+          <tr>
+            <td class="muted">{{ ago(e.timeUtc) }}</td>
+            <td><span class="chip {{ e.event }}">{{ e.event }}</span></td>
+            <td class="mono">{{ e.remoteIp }}</td>
+            <td class="muted">{{ e.detail }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>

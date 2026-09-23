@@ -105,3 +105,7 @@ tr:last-child td { border-bottom: none; }
 .chip.join { background: rgba(88,166,255,.18); color: #58a6ff; }
 
 .mono { font-family: 'Consolas', 'Menlo', monospace; }
+
+/* Ховер строк таблиц */
+tbody tr:hover { background: rgba(255,255,255,.02); }
+.head-row h1 { margin-bottom: 16px; }
