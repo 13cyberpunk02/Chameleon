@@ -1,11 +1,24 @@
 .head {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
+  padding-top: 6px;
 }
 
 .interval {
   width: 140px;
+  margin-bottom: -4px;
+}
+
+@media (max-width: 640px) {
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .interval {
+    width: 100%;
+  }
 }
 
 .metrics {

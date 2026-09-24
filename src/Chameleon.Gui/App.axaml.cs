@@ -55,7 +55,7 @@ public partial class App : Application
         _tray = new TrayIcon
         {
             Icon = AppIcon.ForStatus(Services.Tunnel.Status),
-            ToolTipText = "Chameleon — отключено",
+            ToolTipText = "Chameleon - отключено",
             Menu = menu,
             IsVisible = true,
         };
@@ -67,7 +67,7 @@ public partial class App : Application
             {
                 if (_tray is null) return;
                 _tray.Icon = AppIcon.ForStatus(status);
-                _tray.ToolTipText = "Chameleon — " + StatusText(status);
+                _tray.ToolTipText = "Chameleon - " + StatusText(status);
             });
     }
 

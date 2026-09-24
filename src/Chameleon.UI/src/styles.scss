@@ -1,12 +1,10 @@
 @use '@angular/material' as mat;
 
-// Шрифт иконок Material Icons (локально из пакета, без CDN).
 $icon-font: 'Material Icons';
 
 html {
   color-scheme: light dark;
 
-  // Тема Material 3: зелёный акцент. Свет/тьма - по системе + переключаемо через .dark.
   @include mat.theme((
     color: (
       primary: mat.$green-palette,
@@ -18,7 +16,6 @@ html {
   ));
 }
 
-// Тёмная тема (по классу на <html data-theme="dark">).
 html[data-theme='dark'] {
   @include mat.theme((
     color: (
@@ -29,7 +26,6 @@ html[data-theme='dark'] {
   ));
 }
 
-// Светлая - явно
 html[data-theme='light'] {
   @include mat.theme((
     color: (
@@ -61,4 +57,31 @@ body {
 
 .muted {
   color: var(--mat-sys-on-surface-variant);
+}
+
+mat-card-content table.mat-mdc-table {
+  min-width: 560px;
+}
+
+mat-card-content:has(table.mat-mdc-table) {
+  overflow-x: auto;
+}
+
+/* Мобильные правки */
+@media (max-width: 768px) {
+  h1 {
+    font-size: 20px;
+  }
+  .metrics {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  mat-card-content {
+    padding: 12px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .metrics {
+    grid-template-columns: 1fr !important;
+  }
 }

@@ -1,6 +1,6 @@
 import {Component, inject, OnDestroy, OnInit, signal} from '@angular/core';
 import {ApiService, LogEntry, Session, Stats} from '../../core/api.service';
-import { Subscription, switchMap, timer} from 'rxjs';
+import {Subscription, switchMap, timer} from 'rxjs';
 import {humanBytes, humanUptime, shortKey, timeAgo} from '../../core/format';
 import {RefreshService} from '../../core/refresh.service';
 import {FormsModule} from '@angular/forms';

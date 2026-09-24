@@ -2,9 +2,9 @@
 //   CHAMELEON_LISTEN   адрес прослушивания        (по умолчанию 0.0.0.0:8443)
 //   CHAMELEON_KEY_FILE файл со статическим ключом  (по умолчанию /data/server.key)
 //   CHAMELEON_SNI      домен прикрытия / CN серта  (по умолчанию www.example-cdn.com)
-//   CHAMELEON_CERT_PFX путь к .pfx (боевой серт)   (иначе — самоподписанный по SNI)
+//   CHAMELEON_CERT_PFX путь к .pfx (боевой серт)   (иначе - самоподписанный по SNI)
 //   CHAMELEON_CERT_PASS пароль к .pfx
-//   CHAMELEON_DECOY    сайт-декой host:port        (иначе — статическая заглушка)
+//   CHAMELEON_DECOY    сайт-декой host:port        (иначе - статическая заглушка)
 
 using System.Net;
 using System.Security.Cryptography;

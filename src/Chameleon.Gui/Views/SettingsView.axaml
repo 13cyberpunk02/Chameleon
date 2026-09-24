@@ -38,7 +38,7 @@
             <Border Classes="card" Margin="0,4,0,0">
                 <StackPanel Spacing="6">
                     <TextBlock Classes="label"
-                               Text="Ваш ключ клиента (ID) — передайте администратору сервера для доступа" />
+                               Text="Ваш ключ клиента (ID) - передайте администратору сервера для доступа" />
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBox Grid.Column="0" Text="{Binding ClientPublicKey}" IsReadOnly="True"
                                  FontFamily="Consolas,monospace" FontSize="12" />

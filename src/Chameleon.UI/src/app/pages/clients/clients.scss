@@ -17,6 +17,16 @@
   height: 48px;
 }
 
+@media (max-width: 640px) {
+  .add-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .add-row button {
+    width: 100%;
+  }
+}
+
 .f-key {
   flex: 2;
 }

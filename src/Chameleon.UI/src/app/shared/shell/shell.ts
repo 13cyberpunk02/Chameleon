@@ -1,4 +1,4 @@
-import {Component, inject} from '@angular/core';
+import {Component, inject, signal} from '@angular/core';
 import {AuthService} from '../../core/auth.service';
 import {Router, RouterLink, RouterLinkActive, RouterOutlet} from '@angular/router';
 import {Theme, ThemeService} from '../../core/theme.service';
@@ -21,6 +21,16 @@ export class Shell {
   private auth = inject(AuthService);
   private router = inject(Router);
   theme = inject(ThemeService);
+
+  open = signal(false);
+
+  toggle() {
+    this.open.update(v => !v);
+  }
+
+  close() {
+    this.open.set(false);
+  }
 
   setTheme(t: Theme) {
     this.theme.set(t);
