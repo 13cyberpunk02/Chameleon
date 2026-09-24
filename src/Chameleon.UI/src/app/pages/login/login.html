@@ -1,17 +1,25 @@
 <div class="login-wrap">
-  <div class="login-card">
-    <div class="brand big">🦎 <span>Chameleon</span></div>
-    <p class="muted">Панель управления сервером</p>
+  <mat-card class="login-card" appearance="outlined">
+    <mat-card-header>
+      <mat-icon class="brand-logo" mat-card-avatar>shield</mat-icon>
+      <mat-card-title>Chameleon</mat-card-title>
+      <mat-card-subtitle>Панель управления</mat-card-subtitle>
+    </mat-card-header>
 
-    <label>API-токен</label>
-    <input type="password" [(ngModel)]="token" placeholder="Bearer-токен сервера"
-           (keyup.enter)="submit()" autofocus />
+    <mat-card-content>
+      <mat-form-field appearance="outline" class="full">
+        <mat-label>API-токен</mat-label>
+        <input matInput type="password" [(ngModel)]="token" (keyup.enter)="submit()" autofocus />
+        <mat-icon matSuffix>key</mat-icon>
+      </mat-form-field>
 
-    @if (error()) { <p class="error">{{ error() }}</p> }
+      @if (error()) { <p class="err"><mat-icon>error</mat-icon> {{ error() }}</p> }
+    </mat-card-content>
 
-    <button class="accent" (click)="submit()" [disabled]="busy()">
-      {{ busy() ? 'Проверка…' : 'Войти' }}
-    </button>
-    <p class="hint">Токен = CHAMELEON_API_TOKEN сервера. Хранится локально в браузере.</p>
-  </div>
+    <mat-card-actions align="end">
+      <button matButton="filled" color="primary" (click)="submit()" [disabled]="busy()">
+        @if (busy()) { <mat-spinner diameter="18"></mat-spinner> } @else { Войти }
+      </button>
+    </mat-card-actions>
+  </mat-card>
 </div>

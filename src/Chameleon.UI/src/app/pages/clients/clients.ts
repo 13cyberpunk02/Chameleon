@@ -2,23 +2,32 @@ import {Component, inject, OnInit, signal} from '@angular/core';
 import {ApiService, ClientAccount} from '../../core/api.service';
 import {shortKey} from '../../core/format';
 import {FormsModule} from '@angular/forms';
+import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {MatIconModule} from '@angular/material/icon';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCardModule} from '@angular/material/card';
+import {MatTableModule} from '@angular/material/table';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatInputModule} from '@angular/material/input';
 
 @Component({
-  imports: [FormsModule],
+  imports: [FormsModule, MatCardModule, MatTableModule, MatFormFieldModule, MatInputModule,
+    MatButtonModule, MatIconModule, MatSlideToggleModule, MatSnackBarModule],
   selector: 'app-clients',
-  styleUrl: './clients.css',
+  styleUrl: './clients.scss',
   templateUrl: './clients.html',
 })
 export class Clients implements OnInit {
   private api = inject(ApiService);
+  private snack = inject(MatSnackBar);
 
   clients = signal<ClientAccount[]>([]);
   newKey = '';
   newName = '';
   busy = signal(false);
-  message = signal('');
-  isError = signal(false);
 
+  cols = ['name', 'key', 'enabled', 'added', 'actions'];
   key = (k: string) => shortKey(k, 20);
   date = (iso: string) => new Date(iso).toLocaleString();
 
@@ -27,22 +36,17 @@ export class Clients implements OnInit {
   }
 
   private reload(): void {
-    this.api.clients().subscribe({
-      next: (v) => this.clients.set(v),
-      error: (e) => this.flash('Ошибка загрузки: ' + (e.message ?? e.status), true),
-    });
+    this.api.clients().subscribe({next: v => this.clients.set(v)});
   }
 
-  private flash(msg: string, err = false): void {
-    this.message.set(msg);
-    this.isError.set(err);
-    setTimeout(() => this.message.set(''), 4000);
+  private toast(m: string): void {
+    this.snack.open(m, 'OK', {duration: 3000});
   }
 
   add(): void {
     const key = this.newKey.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(key)) {
-      this.flash('Ключ должен быть 64 hex-символа', true);
+      this.toast('Ключ должен быть 64 hex-символа');
       return;
     }
     this.busy.set(true);
@@ -51,23 +55,26 @@ export class Clients implements OnInit {
         this.busy.set(false);
         this.newKey = '';
         this.newName = '';
-        this.flash('Клиент добавлен');
+        this.toast('Клиент добавлен');
         this.reload();
       },
-      error: (e) => {
+      error: () => {
         this.busy.set(false);
-        this.flash('Ошибка: ' + (e.message ?? e.status), true);
+        this.toast('Ошибка добавления');
       },
     });
   }
 
-  toggle(c: ClientAccount): void {
-    this.api.setEnabled(c.publicKeyHex, !c.enabled).subscribe({
+  toggle(c: ClientAccount, enabled: boolean): void {
+    this.api.setEnabled(c.publicKeyHex, enabled).subscribe({
       next: () => {
-        this.flash(c.enabled ? 'Выключен' : 'Включён');
+        this.toast(enabled ? 'Включён' : 'Выключен');
         this.reload();
       },
-      error: (e) => this.flash('Ошибка: ' + (e.message ?? e.status), true),
+      error: () => {
+        this.toast('Ошибка');
+        this.reload();
+      },
     });
   }
 
@@ -75,10 +82,10 @@ export class Clients implements OnInit {
     if (!confirm(`Удалить клиента ${c.name || c.publicKeyHex.slice(0, 12)}?`)) return;
     this.api.removeClient(c.publicKeyHex).subscribe({
       next: () => {
-        this.flash('Удалён');
+        this.toast('Удалён');
         this.reload();
       },
-      error: (e) => this.flash('Ошибка: ' + (e.message ?? e.status), true),
+      error: () => this.toast('Ошибка удаления'),
     });
   }
 }

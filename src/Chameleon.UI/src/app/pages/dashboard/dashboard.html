@@ -1,92 +1,124 @@
-<div class="head-row">
+<div class="head">
   <h1>Дашборд</h1>
-  <span class="muted refresh">обновление каждые 3 с</span>
+  <mat-form-field appearance="outline" class="interval">
+    <mat-label>Обновление</mat-label>
+    <mat-select [ngModel]="refresh.intervalMs()" (ngModelChange)="setInterval($event)">
+      @for (o of refresh.options; track o.value) {
+        <mat-option [value]="o.value">{{ o.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
 </div>
 
-<!-- Метрики -->
 <div class="metrics">
-  <div class="card metric">
-    <div class="label">Активных сессий</div>
-    <div class="value">{{ stats()?.activeSessions ?? '—' }}</div>
-  </div>
-  <div class="card metric">
-    <div class="label">Потоков</div>
-    <div class="value">{{ stats()?.totalStreams ?? '—' }}</div>
-  </div>
-  <div class="card metric">
-    <div class="label">Клиентам ↓</div>
-    <div class="value">{{ stats() ? bytes(stats()!.totalBytesToClient) : '—' }}</div>
-  </div>
-  <div class="card metric">
-    <div class="label">От клиентов ↑</div>
-    <div class="value">{{ stats() ? bytes(stats()!.totalBytesFromClient) : '—' }}</div>
-  </div>
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <div class="label">Активных сессий</div>
+      <div class="value">{{ stats()?.activeSessions ?? '-' }}</div>
+    </mat-card-content>
+  </mat-card>
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <div class="label">Потоков</div>
+      <div class="value">{{ stats()?.totalStreams ?? '-' }}</div>
+    </mat-card-content>
+  </mat-card>
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <div class="label">Клиентам ↓</div>
+      <div class="value">{{ stats() ? bytes(stats()!.totalBytesToClient) : '-' }}</div>
+    </mat-card-content>
+  </mat-card>
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <div class="label">От клиентов ↑</div>
+      <div class="value">{{ stats() ? bytes(stats()!.totalBytesFromClient) : '-' }}</div>
+    </mat-card-content>
+  </mat-card>
 </div>
 
-@if (error()) {
-  <div class="card error-box">{{ error() }}</div>
-}
+<mat-card appearance="outlined" class="block">
+  <mat-card-content>
+    <div class="graph-head">
+      <span class="muted">Скорость трафика</span>
+      <span class="legend">↓ {{ curDown() }}/с &nbsp;&nbsp; ↑ {{ curUp() }}/с</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas baseChart [type]="'line'" [data]="chartData()" [options]="chartOptions"></canvas>
+    </div>
+  </mat-card-content>
+</mat-card>
 
-<!-- Активные сессии -->
 <h2>Активные сессии</h2>
-<div class="card table-card">
-  @if (sessions().length === 0) {
-    <p class="muted empty">Нет активных сессий</p>
-  } @else {
-    <table>
-      <thead>
-      <tr>
-        <th>IP</th>
-        <th>Клиент</th>
-        <th>Несущих</th>
-        <th>Потоков</th>
-        <th>↓ клиенту</th>
-        <th>↑ от клиента</th>
-        <th>Время</th>
-      </tr>
-      </thead>
-      <tbody>
-        @for (s of sessions(); track s.sessionId) {
-          <tr>
-            <td class="mono">{{ s.remoteIp }}</td>
-            <td class="mono">{{ key(s.clientKey) }}</td>
-            <td>{{ s.carriers }}</td>
-            <td>{{ s.streams }}</td>
-            <td>{{ bytes(s.bytesToClient) }}</td>
-            <td>{{ bytes(s.bytesFromClient) }}</td>
-            <td>{{ uptime(s.uptimeSeconds) }}</td>
-          </tr>
-        }
-      </tbody>
-    </table>
-  }
-</div>
+<mat-card appearance="outlined" class="block">
+  <mat-card-content>
+    @if (sessions().length === 0) {
+      <p class="muted empty">Нет активных сессий</p>
+    } @else {
+      <table mat-table [dataSource]="sessions()" class="full">
+        <ng-container matColumnDef="ip">
+          <th mat-header-cell *matHeaderCellDef>IP</th>
+          <td mat-cell *matCellDef="let s" class="mono">{{ s.remoteIp }}</td>
+        </ng-container>
+        <ng-container matColumnDef="client">
+          <th mat-header-cell *matHeaderCellDef>Клиент</th>
+          <td mat-cell *matCellDef="let s" class="mono">{{ key(s.clientKey) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="carriers">
+          <th mat-header-cell *matHeaderCellDef>Несущих</th>
+          <td mat-cell *matCellDef="let s">{{ s.carriers }}</td>
+        </ng-container>
+        <ng-container matColumnDef="streams">
+          <th mat-header-cell *matHeaderCellDef>Потоков</th>
+          <td mat-cell *matCellDef="let s">{{ s.streams }}</td>
+        </ng-container>
+        <ng-container matColumnDef="down">
+          <th mat-header-cell *matHeaderCellDef>↓ клиенту</th>
+          <td mat-cell *matCellDef="let s">{{ bytes(s.bytesToClient) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="up">
+          <th mat-header-cell *matHeaderCellDef>↑ от клиента</th>
+          <td mat-cell *matCellDef="let s">{{ bytes(s.bytesFromClient) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="uptime">
+          <th mat-header-cell *matHeaderCellDef>Время</th>
+          <td mat-cell *matCellDef="let s">{{ uptime(s.uptimeSeconds) }}</td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="sessionCols"></tr>
+        <tr mat-row *matRowDef="let row; columns: sessionCols"></tr>
+      </table>
+    }
+  </mat-card-content>
+</mat-card>
 
-<!-- Лента событий -->
 <h2>События</h2>
-<div class="card table-card">
-  @if (events().length === 0) {
-    <p class="muted empty">Событий пока нет</p>
-  } @else {
-    <table>
-      <thead>
-      <tr>
-        <th>Время</th>
-        <th>Событие</th>
-        <th>IP</th>
-        <th>Детали</th>
-      </tr>
-      </thead>
-      <tbody>
-        @for (e of events(); track e.timeUtc + e.detail) {
-          <tr>
-            <td class="muted">{{ ago(e.timeUtc) }}</td>
-            <td><span class="chip {{ e.event }}">{{ e.event }}</span></td>
-            <td class="mono">{{ e.remoteIp }}</td>
-            <td class="muted">{{ e.detail }}</td>
-          </tr>
-        }
-      </tbody>
-    </table>
-  }
-</div>
+<mat-card appearance="outlined" class="block">
+  <mat-card-content>
+    @if (events().length === 0) {
+      <p class="muted empty">Событий пока нет</p>
+    } @else {
+      <table mat-table [dataSource]="events()" class="full">
+        <ng-container matColumnDef="time">
+          <th mat-header-cell *matHeaderCellDef>Время</th>
+          <td mat-cell *matCellDef="let e" class="muted">{{ ago(e.timeUtc) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="event">
+          <th mat-header-cell *matHeaderCellDef>Событие</th>
+          <td mat-cell *matCellDef="let e">
+            <mat-chip [class]="'chip-' + e.event" [highlighted]="true">{{ e.event }}</mat-chip>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="ip">
+          <th mat-header-cell *matHeaderCellDef>IP</th>
+          <td mat-cell *matCellDef="let e" class="mono">{{ e.remoteIp }}</td>
+        </ng-container>
+        <ng-container matColumnDef="detail">
+          <th mat-header-cell *matHeaderCellDef>Детали</th>
+          <td mat-cell *matCellDef="let e" class="muted">{{ e.detail }}</td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="eventCols"></tr>
+        <tr mat-row *matRowDef="let row; columns: eventCols"></tr>
+      </table>
+    }
+  </mat-card-content>
+</mat-card>

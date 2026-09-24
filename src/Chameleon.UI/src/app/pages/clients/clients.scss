@@ -1,0 +1,39 @@
+.sub {
+  margin-top: -8px;
+  margin-bottom: 18px;
+}
+
+.add {
+  margin-bottom: 16px;
+}
+
+.add-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.add-row button {
+  height: 48px;
+}
+
+.f-key {
+  flex: 2;
+}
+
+.f-name {
+  flex: 1;
+}
+
+.full {
+  width: 100%;
+}
+
+.empty {
+  text-align: center;
+  padding: 16px;
+}
+
+.right {
+  text-align: right;
+}

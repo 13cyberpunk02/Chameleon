@@ -1,11 +1,36 @@
-<div class="layout">
-  <aside class="sidebar">
-    <div class="brand">🦎 <span>Chameleon</span></div>
-    <nav>
-      <a routerLink="/dashboard" routerLinkActive="active">📊 Дашборд</a>
-      <a routerLink="/clients" routerLinkActive="active">👤 Клиенты</a>
-    </nav>
-    <button class="logout" (click)="logout()">Выйти</button>
-  </aside>
+<mat-toolbar class="topbar">
+  <div class="logo">
+    <mat-icon>shield</mat-icon>
+    <span>Chameleon</span>
+  </div>
+  <span class="spacer"></span>
+
+  <button matIconButton [matMenuTriggerFor]="themeMenu" matTooltip="Тема" class="tb-btn">
+    <mat-icon>{{ themeIcon() }}</mat-icon>
+  </button>
+  <mat-menu #themeMenu="matMenu">
+    <button mat-menu-item (click)="setTheme('system')"><mat-icon>brightness_auto</mat-icon><span>Система</span></button>
+    <button mat-menu-item (click)="setTheme('light')"><mat-icon>light_mode</mat-icon><span>Светлая</span></button>
+    <button mat-menu-item (click)="setTheme('dark')"><mat-icon>dark_mode</mat-icon><span>Тёмная</span></button>
+  </mat-menu>
+
+  <button matIconButton (click)="logout()" matTooltip="Выйти" class="tb-btn">
+    <mat-icon>logout</mat-icon>
+  </button>
+</mat-toolbar>
+
+<div class="body">
+  <nav class="sidebar">
+    <a class="nav-item" routerLink="/dashboard" routerLinkActive="active">
+      <mat-icon>dashboard</mat-icon><span>Дашборд</span>
+    </a>
+    <a class="nav-item" routerLink="/clients" routerLinkActive="active">
+      <mat-icon>group</mat-icon><span>Клиенты</span>
+    </a>
+    <a class="nav-item" routerLink="/server" routerLinkActive="active">
+      <mat-icon>dns</mat-icon><span>Сервер</span>
+    </a>
+  </nav>
+
   <main class="content"><router-outlet /></main>
 </div>

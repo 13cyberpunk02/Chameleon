@@ -1,0 +1,18 @@
+<h1>Сервер</h1>
+@if (info(); as i) {
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <div class="row"><span class="muted">SNI (домен маскировки)</span><span>{{ i.sni }}</span></div>
+      <div class="row"><span class="muted">Публичный ключ сервера</span><span
+        class="mono keyval">{{ i.publicKey }}</span></div>
+      <div class="row"><span class="muted">Allowlist (аккаунты)</span>
+        <mat-chip [highlighted]="true" [class]="i.allowlist ? 'on' : 'off'">{{ i.allowlist ? 'включён' : 'выключен' }}
+        </mat-chip>
+      </div>
+      <div class="row"><span class="muted">Аптайм</span><span>{{ uptime(i.uptimeSeconds) }}</span></div>
+    </mat-card-content>
+  </mat-card>
+  <p class="muted hint">Публичный ключ сервера клиенты вписывают в конфиг (или он в ссылке chameleon://).</p>
+} @else {
+  <p class="muted">Загрузка…</p>
+}

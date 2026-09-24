@@ -1,0 +1,63 @@
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.interval {
+  width: 140px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.label {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 12px;
+}
+
+.value {
+  font-size: 26px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.block {
+  margin-bottom: 20px;
+}
+
+.full {
+  width: 100%;
+}
+
+.empty {
+  text-align: center;
+  padding: 14px;
+}
+
+.graph-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.chart-wrap {
+  height: 160px;
+}
+
+mat-chip.chip-connect {
+  --mdc-chip-elevated-container-color: color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
+}
+
+mat-chip.chip-probe {
+  --mdc-chip-elevated-container-color: rgba(210, 153, 34, .25);
+}
+
+mat-chip.chip-denied {
+  --mdc-chip-elevated-container-color: rgba(248, 81, 73, .25);
+}

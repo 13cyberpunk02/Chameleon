@@ -1,0 +1,27 @@
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.keyval {
+  word-break: break-all;
+  text-align: right;
+  max-width: 60%;
+}
+
+.hint {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+mat-chip.off {
+  opacity: .7;
+}

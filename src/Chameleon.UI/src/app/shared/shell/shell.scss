@@ -1,0 +1,86 @@
+:host {
+  display: block;
+  height: 100vh;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--mat-sys-surface-container);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  padding: 0 16px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.logo mat-icon {
+  color: var(--mat-sys-primary);
+}
+
+.tb-btn {
+  margin-left: 8px;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  gap: 16px;
+  padding: 16px;
+  height: calc(100vh - 64px); /* под header */
+  box-sizing: border-box;
+}
+
+.sidebar {
+  background: var(--mat-sys-surface-container);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 16px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* расстояние между пунктами */
+  height: fit-content;
+  position: sticky;
+  top: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .12);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px; /* больше воздуха внутри */
+  border-radius: 10px;
+  color: var(--mat-sys-on-surface);
+  text-decoration: none;
+  font-size: 14px;
+  transition: background .15s;
+}
+
+.nav-item mat-icon {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.nav-item:hover {
+  background: var(--mat-sys-surface-container-high);
+}
+
+.nav-item.active {
+  background: color-mix(in srgb, var(--mat-sys-primary) 16%, transparent);
+  font-weight: 600;
+}
+
+.nav-item.active mat-icon {
+  color: var(--mat-sys-primary);
+}
+
+.content {
+  overflow: auto;
+  border-radius: 16px;
+}

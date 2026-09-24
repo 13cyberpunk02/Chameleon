@@ -1,53 +1,61 @@
-<h1>Клиенты (allowlist)</h1>
-<p class="muted sub">Разрешённые клиентские ключи. Изменения применяются сразу, без перезапуска сервера.</p>
+<h1>Клиенты</h1>
+<p class="muted sub">Разрешённые клиентские ключи (allowlist). Изменения применяются сразу, без перезапуска сервера.</p>
 
-<!-- Добавление -->
-<div class="card add-row">
-  <div class="fields">
-    <input [(ngModel)]="newKey" placeholder="Публичный ключ клиента (hex, 64 симв.)" class="mono"/>
-    <input [(ngModel)]="newName" placeholder="Имя (напр. «Ноут Ивана»)"/>
-  </div>
-  <button class="accent" (click)="add()" [disabled]="busy()">Добавить</button>
-</div>
+<mat-card appearance="outlined" class="add">
+  <mat-card-content>
+    <div class="add-row">
+      <mat-form-field appearance="outline" class="f-key" subscriptSizing="dynamic">
+        <mat-label>Публичный ключ (64 hex)</mat-label>
+        <input matInput [(ngModel)]="newKey" class="mono"/>
+      </mat-form-field>
+      <mat-form-field appearance="outline" class="f-name" subscriptSizing="dynamic">
+        <mat-label>Имя</mat-label>
+        <input matInput [(ngModel)]="newName"/>
+      </mat-form-field>
+      <button matButton="filled" color="primary" (click)="add()" [disabled]="busy()">
+        <mat-icon>add</mat-icon>
+        Добавить
+      </button>
+    </div>
+  </mat-card-content>
+</mat-card>
 
-@if (message()) {
-  <p class="msg" [class.err]="isError()">{{ message() }}</p>
-}
-
-<!-- Список -->
-<div class="card table-card">
-  @if (clients().length === 0) {
-    <p class="muted empty">Список пуст. Пока allowlist не включён на сервере (CHAMELEON_ALLOWLIST=1) — подключается
-      любой клиент.</p>
-  } @else {
-    <table>
-      <thead>
-      <tr>
-        <th>Имя</th>
-        <th>Ключ</th>
-        <th>Статус</th>
-        <th>Добавлен</th>
-        <th></th>
-      </tr>
-      </thead>
-      <tbody>
-        @for (c of clients(); track c.publicKeyHex) {
-          <tr [class.disabled]="!c.enabled">
-            <td>{{ c.name || '—' }}</td>
-            <td class="mono">{{ key(c.publicKeyHex) }}</td>
-            <td>
-                  <span class="chip" [class.on]="c.enabled" [class.off]="!c.enabled">
-                    {{ c.enabled ? 'включён' : 'выключен' }}
-                  </span>
-            </td>
-            <td class="muted">{{ date(c.addedUtc) }}</td>
-            <td class="actions">
-              <button (click)="toggle(c)">{{ c.enabled ? 'Выключить' : 'Включить' }}</button>
-              <button class="danger" (click)="remove(c)">Удалить</button>
-            </td>
-          </tr>
-        }
-      </tbody>
-    </table>
-  }
-</div>
+<mat-card appearance="outlined">
+  <mat-card-content>
+    @if (clients().length === 0) {
+      <p class="muted empty">Список пуст. Пока allowlist не включён (CHAMELEON_ALLOWLIST=1) - подключается любой
+        клиент.</p>
+    } @else {
+      <table mat-table [dataSource]="clients()" class="full">
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>Имя</th>
+          <td mat-cell *matCellDef="let c">{{ c.name || '-' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="key">
+          <th mat-header-cell *matHeaderCellDef>Ключ</th>
+          <td mat-cell *matCellDef="let c" class="mono">{{ key(c.publicKeyHex) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="enabled">
+          <th mat-header-cell *matHeaderCellDef>Активен</th>
+          <td mat-cell *matCellDef="let c">
+            <mat-slide-toggle [checked]="c.enabled" (change)="toggle(c, $event.checked)"></mat-slide-toggle>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="added">
+          <th mat-header-cell *matHeaderCellDef>Добавлен</th>
+          <td mat-cell *matCellDef="let c" class="muted">{{ date(c.addedUtc) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let c" class="right">
+            <button matIconButton color="warn" (click)="remove(c)" aria-label="Удалить">
+              <mat-icon>delete</mat-icon>
+            </button>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="cols"></tr>
+        <tr mat-row *matRowDef="let row; columns: cols"></tr>
+      </table>
+    }
+  </mat-card-content>
+</mat-card>
