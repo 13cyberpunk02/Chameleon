@@ -9,11 +9,23 @@
   width: 380px;
 }
 
-.brand-logo {
-  background: color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
-  color: var(--mat-sys-primary);
-  display: grid;
-  place-items: center;
+.login-brand {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.login-logo {
+  width: 84px;
+  height: 84px;
+}
+
+.login-brand h1 {
+  margin: 12px 0 2px;
+  font-size: 24px;
+}
+
+.login-brand p {
+  margin: 0;
 }
 
 .full {

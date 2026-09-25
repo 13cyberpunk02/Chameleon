@@ -32,6 +32,12 @@ export class Shell {
     this.open.set(false);
   }
 
+  logoSrc() {
+    return this.theme.effective() === 'light'
+      ? '/chameleon-light.svg'
+      : '/chameleon-dark.svg';
+  }
+
   setTheme(t: Theme) {
     this.theme.set(t);
   }
