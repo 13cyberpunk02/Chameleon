@@ -1,42 +1,92 @@
+using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
+using SkiaSharp;
+using Svg.Skia;
 
 namespace Chameleon.Gui;
 
-/// <summary>Иконка приложения/трея, вшитая в код (base64 PNG) - без внешнего файла.</summary>
+/// <summary>
+/// Иконка приложения/трея из ВЕКТОРНОГО логотипа (SVG), рендерится через Skia.
+/// Для трея добавляется маленькая цветная точка статуса в углу
+/// (серый/жёлтый/зелёный/красный), чтобы состояние было видно из трея.
+/// </summary>
 public static class AppIcon
 {
-    private const string PngBase64 =
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAf0lEQVR42u3XsRGAMAwDQE3CBmxATc04GYLBshVMALZDfBZ3KlTrq1jBsq9XZSDA7wDbeZhJAXiKRyDIKI5AkF1uIRAtb72ZiSBCAE/5G8IN+FoeQbgAI+VPCBMws9yDEEAAAQTgewkpbkH5NaTYA+WLiGITUqximn+BvmZZuQEwBOyt0vslJAAAAABJRU5ErkJggg==";
+    private const int IconSize = 64;
 
-    public static WindowIcon Load()
+    private static string LoadSvg()
     {
-        byte[] bytes = System.Convert.FromBase64String(PngBase64);
-        return new WindowIcon(new Bitmap(new System.IO.MemoryStream(bytes)));
+        var asm = Assembly.GetExecutingAssembly();
+        string name = Array.Find(asm.GetManifestResourceNames(),
+                          n => n.EndsWith("chameleon-shield.svg", StringComparison.OrdinalIgnoreCase))
+                      ?? throw new InvalidOperationException("Ресурс логотипа не найден");
+        using var s = asm.GetManifestResourceStream(name)!;
+        using var r = new StreamReader(s);
+        return r.ReadToEnd();
     }
 
-    private const string PngDisconnected =
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAfklEQVR42u3XsRGAMAwDQE1CQZWZqKkZhzo1S8IEYDvgs7hToVpfxQqmuZ2VgQC/AyzrZiYF4CkegSCjOAJBdrmFQLR874eZCCIE8JQ/IdyAt+URhAswUn6HMAFflnsQAggggAB8LyHFLSi/hhR7oHwRUWxCilVM8y/Q1ywrF9Pv11J4zqLzAAAAAElFTkSuQmCC";
-
-    private const string PngConnected =
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAgElEQVR42u3XsRGAMAwDQE1CQZWOLViGLZgkg7ELTAC2Az6LOxWq9VWsYJrbWRkI8DvA0lczKQBP8QgEGcURCLLLLQSi5duxm4kgQgBP+RPCDXhbHkG4ACPldwgT8GW5ByGAAAIIwPcSUtyC8mtIsQfKFxHFJqRYxTT/An3NsnIBMyCo346XDb4AAAAASUVORK5CYII=";
-
-    private const string PngConnecting =
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAfElEQVR42u3XsRGAMAwDQE+SgoqZGIyZqFkomQAsB3xW7lSo1lexYm3be2VMgOUA19ncpACQ4hmIZRRHIJZd7iEsWt7vw00EEQIg5W8IGPC1PIKAADPlTwgX8Gc5ghBAAAEE4HsJKW5B+TWk2APli4hiE1KsYpp/gb5mWRmTmXQU+6iKWwAAAABJRU5ErkJggg==";
-
-    private const string PngError =
-        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAe0lEQVR42u3XsRHAIAwDQE+SIlUmYTCmy1ZkAmKLxGdxp0K1vsLCjvMalTEBtgPcrblJAUSKVyCWUYxALLvcQxhaPnp3gyAgQKT8DREGfC1HECHASvkM4QL+LI8gBBBAAAH4XkKKW1B+DSn2QPkiotiEFKuY5l+gr1lWHqToI0zmYlpXAAAAAElFTkSuQmCC";
-
-    private static WindowIcon FromBase64(string b64)
-        => new WindowIcon(new Bitmap(new System.IO.MemoryStream(System.Convert.FromBase64String(b64))));
-
-    /// <summary>Иконка трея по статусу подключения (серый/жёлтый/зелёный/красный).</summary>
-    public static WindowIcon ForStatus(Chameleon.Tunnel.TunnelStatus status) => status switch
+    private static readonly Lazy<SKPicture?> Picture = new(() =>
     {
-        Chameleon.Tunnel.TunnelStatus.Connected => FromBase64(PngConnected),
-        Chameleon.Tunnel.TunnelStatus.Connecting => FromBase64(PngConnecting),
-        Chameleon.Tunnel.TunnelStatus.Reconnecting => FromBase64(PngConnecting),
-        Chameleon.Tunnel.TunnelStatus.Error => FromBase64(PngError),
-        _ => FromBase64(PngDisconnected),
+        try
+        {
+            using var svg = new SKSvg();
+            using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(LoadSvg()));
+            svg.Load(ms);
+            return svg.Picture;
+        }
+        catch
+        {
+            return null;
+        }
+    });
+
+    /// <summary>Иконка окна (без индикатора статуса).</summary>
+    public static WindowIcon Load() => Render(null);
+
+    /// <summary>Иконка трея с точкой статуса.</summary>
+    public static WindowIcon ForStatus(Tunnel.TunnelStatus status) => Render(StatusColor(status));
+
+    private static WindowIcon Render(SKColor? statusDot)
+    {
+        var info = new SKImageInfo(IconSize, IconSize, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var surface = SKSurface.Create(info);
+        var canvas = surface.Canvas;
+        canvas.Clear(SKColors.Transparent);
+
+        var pic = Picture.Value;
+        if (pic is not null)
+        {
+            var r = pic.CullRect;
+            float scale = IconSize / Math.Max(r.Width, r.Height);
+            canvas.Save();
+            canvas.Scale(scale);
+            canvas.Translate(-r.Left, -r.Top);
+            canvas.DrawPicture(pic);
+            canvas.Restore();
+        }
+        
+        if (statusDot is { } color)
+        {
+            float rad = IconSize * 0.18f;
+            float cx = IconSize - rad - 2, cy = IconSize - rad - 2;
+            using var border = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            using var fill = new SKPaint { Color = color, IsAntialias = true };
+            canvas.DrawCircle(cx, cy, rad + 1.5f, border);
+            canvas.DrawCircle(cx, cy, rad, fill);
+        }
+
+        using var image = surface.Snapshot();
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        return new WindowIcon(new Bitmap(new MemoryStream(data.ToArray())));
+    }
+
+    private static SKColor StatusColor(Chameleon.Tunnel.TunnelStatus s) => s switch
+    {
+        Chameleon.Tunnel.TunnelStatus.Connected => new SKColor(0x3F, 0xB9, 0x50),
+        Chameleon.Tunnel.TunnelStatus.Connecting => new SKColor(0xD2, 0x99, 0x22), 
+        Chameleon.Tunnel.TunnelStatus.Reconnecting => new SKColor(0xD2, 0x99, 0x22),
+        Chameleon.Tunnel.TunnelStatus.Error => new SKColor(0xF8, 0x51, 0x49),
+        _ => new SKColor(0x8B, 0x94, 0x9E),
     };
 }
