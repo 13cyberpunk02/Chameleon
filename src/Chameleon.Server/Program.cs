@@ -27,6 +27,7 @@ string? decoy = Environment.GetEnvironmentVariable("CHAMELEON_DECOY");
 bool proxyProtocol = Env("CHAMELEON_PROXY_PROTOCOL", "0") is "1" or "true";
 bool allowlist = Env("CHAMELEON_ALLOWLIST", "0") is "1" or "true";
 string clientsFile = Env("CHAMELEON_CLIENTS_FILE", "/data/clients.json");
+string trafficFile = Env("CHAMELEON_TRAFFIC_FILE", "/data/traffic.json");
 
 KeyPair serverStatic = LoadOrCreateKey(keyFile);
 Console.WriteLine("=== Chameleon server ===");
@@ -39,7 +40,7 @@ string pubKeyHex = Convert.ToHexString(serverStatic.Public).ToLowerInvariant();
 Console.WriteLine("СТАТИЧЕСКИЙ ПУБЛИЧНЫЙ КЛЮЧ СЕРВЕРА:");
 Console.WriteLine($"  {pubKeyHex}");
 Console.WriteLine();
-Console.WriteLine("КОНФИГ-ССЫЛКА (скопируйте целиком в клиент → «Вставить из буфера»):");
+Console.WriteLine("КОНФИГ-ССЫЛКА (скопируйте целиком в клиент -> «Вставить из буфера»):");
 Console.WriteLine($"  {BuildLink(publicAddr, pubKeyHex, sni, profileName)}");
 Console.WriteLine();
 
@@ -54,12 +55,15 @@ foreach (var k in (Environment.GetEnvironmentVariable("CHAMELEON_CLIENTS") ?? ""
 Console.WriteLine(
     $"allowlist: {(clients.Enforced ? $"включён, разрешённых клиентов: {clients.Count}" : "выключен (принимаем любого)")}");
 
-var events = new ServerEventLog();
+var events = new Chameleon.Core.Proxy.ServerEventLog();
 events.Logged += e =>
     Console.WriteLine($"{e.TimeUtc:yyyy-MM-dd HH:mm:ss}Z  [{e.Event,-10}] {e.RemoteIp,-15}  {e.Detail}");
 
 await using var server = ChameleonServer.Start(endpoint, serverStatic, TlsCarrier.Server(cert), decoyEndpoint,
     events: events, proxyProtocol: proxyProtocol, clients: clients);
+
+var traffic = new TrafficStore(trafficFile);
+server.SessionClosed += (key, down, up) => traffic.AddClosedSession(key, down, up);
 Console.WriteLine($"сервер запущен на {server.EndPoint}. Ctrl+C для остановки.");
 
 string? apiToken = Environment.GetEnvironmentVariable("CHAMELEON_API_TOKEN");
@@ -67,7 +71,7 @@ string apiListen = Env("CHAMELEON_API_LISTEN", "http://+:9090/");
 ManagementApi? api = null;
 if (!string.IsNullOrWhiteSpace(apiToken))
 {
-    api = new ManagementApi(apiListen, apiToken, server, events, clients, pubKeyHex, sni);
+    api = new ManagementApi(apiListen, apiToken, server, events, clients, traffic, pubKeyHex, sni);
     api.Start();
     Console.WriteLine($"management API: {apiListen} (Bearer-токен задан)");
 }
@@ -89,6 +93,7 @@ Console.CancelKeyPress += (_, e) =>
 };
 await stop.Task;
 api?.Dispose();
+traffic.Save();
 
 static string Env(string name, string fallback) =>
     Environment.GetEnvironmentVariable(name) is { Length: > 0 } v ? v : fallback;
@@ -105,7 +110,7 @@ static KeyPair LoadOrCreateKey(string path)
     string? dir = Path.GetDirectoryName(path);
     if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
     File.WriteAllText(path, Convert.ToHexString(fresh).ToLowerInvariant());
-    Console.WriteLine($"(сгенерирован новый ключ сервера → {path})");
+    Console.WriteLine($"(сгенерирован новый ключ сервера -> {path})");
     return new KeyPair(fresh, X25519.ScalarMultBase(fresh));
 }
 
@@ -116,7 +121,7 @@ static X509Certificate2 LoadCert(string? certPem, string? keyPem, string? pfx, s
         using X509Certificate2 fromPem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
         return LoadPfxBytes(fromPem.Export(X509ContentType.Pfx), null);
     }
-    
+
     if (pfx is { Length: > 0 } && File.Exists(pfx))
         return LoadPfxBytes(File.ReadAllBytes(pfx), pass);
     return TlsCarrier.CreateSelfSignedCertificate(sni);

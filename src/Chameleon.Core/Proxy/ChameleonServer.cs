@@ -31,14 +31,18 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly DnsEndPoint? _decoy;
     private readonly TrafficShaper? _shaper;
     private readonly ServerEventLog? _events;
+
+    /// <summary>Сессия закрыта: (clientKeyHex, bytesToClient, bytesFromClient) - для учёта трафика.</summary>
+    public event Action<string, long, long>? SessionClosed;
+
     private readonly bool _proxyProtocol;
-    private readonly ClientRegistry? _clients;
+    private readonly IClientStore? _clients;
     private readonly ConcurrentDictionary<string, Registered> _sessions = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
     private ChameleonServer(TcpListener listener, KeyPair serverStatic, CarrierWrapper? carrier, DnsEndPoint? decoy,
-        TrafficShaper? shaper, ServerEventLog? events, bool proxyProtocol, ClientRegistry? clients)
+        TrafficShaper? shaper, ServerEventLog? events, bool proxyProtocol, IClientStore? clients)
     {
         _listener = listener;
         _serverStatic = serverStatic;
@@ -55,7 +59,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     public static ChameleonServer Start(
         IPEndPoint endPoint, KeyPair serverStatic, CarrierWrapper? carrier = null, DnsEndPoint? decoy = null,
         TrafficShaper? shaper = null, ServerEventLog? events = null, bool proxyProtocol = false,
-        ClientRegistry? clients = null)
+        IClientStore? clients = null)
     {
         var listener = new TcpListener(endPoint);
         listener.Start();
@@ -97,7 +101,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             {
                 using var pre = new NetworkStream(socket, ownsSocket: false);
                 var (pp, _) = await ProxyProtocol.TryReadAsync(pre, cancellationToken).ConfigureAwait(false);
-                if (pp.Present && pp.SourceIp is not null) remoteIp = pp.SourceIp;
+                if (pp is { Present: true, SourceIp: not null }) remoteIp = pp.SourceIp;
             }
 
             carrier = _carrier is null
@@ -106,7 +110,7 @@ public sealed class ChameleonServer : IAsyncDisposable
 
             using var hs = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             hs.CancelAfter(HandshakeTimeout);
-            
+
             var buffered = new List<byte>(2);
             byte[] prefix = new byte[2];
             if (!await ReadRecordingAsync(carrier, prefix, buffered, hs.Token).ConfigureAwait(false))
@@ -181,11 +185,11 @@ public sealed class ChameleonServer : IAsyncDisposable
         session.StreamAccepted += stream => _ = DialAndRelayAsync(session, stream, _cts.Token);
 
         string sessionId = Convert.ToHexString(CarrierJoin.SessionId(result.SessionSecret));
-        string clientKey = Convert.ToHexString(result.RemoteStaticPublic)[..16].ToLowerInvariant();
+        string clientKey = Convert.ToHexString(result.RemoteStaticPublic).ToLowerInvariant();
         var startedAt = DateTime.UtcNow;
         _sessions[sessionId] = new Registered(session, result.SessionSecret, remoteIp, clientKey, startedAt);
-        _events?.Add("connect", remoteIp, $"новая сессия, client={clientKey}…, активных={_sessions.Count}");
-
+        _events?.Add("connect", remoteIp, $"новая сессия, client={clientKey[..16]}…, активных={_sessions.Count}");
+        
         try
         {
             await session.Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -199,6 +203,15 @@ public sealed class ChameleonServer : IAsyncDisposable
             var dur = DateTime.UtcNow - startedAt;
             _events?.Add("disconnect", remoteIp,
                 $"сессия закрыта, {FormatDuration(dur)}, ↑{Human(session.BytesReceived)} ↓{Human(session.BytesSent)}, активных={_sessions.Count}");
+            try
+            {
+                SessionClosed?.Invoke(clientKeyFull, session.BytesSent, session.BytesReceived);
+            }
+            catch
+            {
+                // ignored
+            }
+
             await session.DisposeAsync().ConfigureAwait(false);
         }
     }
@@ -380,7 +393,7 @@ public sealed class ChameleonServer : IAsyncDisposable
                 StartedUtc: r.StartedUtc,
                 UptimeSeconds: (long)(now - r.StartedUtc).TotalSeconds,
                 BytesToClient: r.Session.BytesSent,
-                BytesFromClient: r.Session.BytesReceived, 
+                BytesFromClient: r.Session.BytesReceived,
                 Carriers: r.Session.CarrierCount,
                 Streams: r.Session.StreamCount));
         }

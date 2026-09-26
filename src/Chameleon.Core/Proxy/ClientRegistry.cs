@@ -17,7 +17,7 @@ public sealed class ClientAccount
 /// выключен - сервер принимает любого (как раньше). Если включён - только ключи
 /// из списка (и только Enabled). Управляется файлом clients.json и (позже) API.
 /// </summary>
-public sealed class ClientRegistry
+public sealed class ClientRegistry : IClientStore
 {
     private readonly ConcurrentDictionary<string, ClientAccount> _byKey = new();
     private string? _path;
@@ -53,9 +53,9 @@ public sealed class ClientRegistry
         return true;
     }
 
-    public IReadOnlyList<ClientAccount> List() => _byKey.Values.OrderBy(a => a.Name).ToList();
+    public IReadOnlyList<ClientAccount> List() => [.. _byKey.Values.OrderBy(a => a.Name)];
     public int Count => _byKey.Count;
-    
+
     private sealed record FileModel(bool Enforced, List<ClientAccount> Clients);
 
     public static ClientRegistry Load(string path, bool enforcedDefault)

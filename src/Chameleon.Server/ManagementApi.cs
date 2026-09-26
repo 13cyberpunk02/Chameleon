@@ -14,7 +14,8 @@ public sealed class ManagementApi : IDisposable
     private readonly HttpListener _listener = new();
     private readonly ChameleonServer _server;
     private readonly ServerEventLog _events;
-    private readonly ClientRegistry _clients;
+    private readonly IClientStore _clients;
+    private readonly TrafficStore _traffic;
     private readonly string _token;
     private readonly string _serverPublicKey;
     private readonly string _sni;
@@ -23,11 +24,12 @@ public sealed class ManagementApi : IDisposable
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public ManagementApi(string prefix, string token, ChameleonServer server, ServerEventLog events,
-        ClientRegistry clients, string serverPublicKey, string sni)
+        IClientStore clients, TrafficStore traffic, string serverPublicKey, string sni)
     {
         _server = server;
         _events = events;
         _clients = clients;
+        _traffic = traffic;
         _token = token;
         _serverPublicKey = serverPublicKey;
         _sni = sni;
@@ -109,7 +111,11 @@ public sealed class ManagementApi : IDisposable
                     break;
 
                 case ("GET", "/api/clients"):
-                    await Write(res, 200, _clients.List());
+                    await Write(res, 200, ClientsWithTraffic());
+                    break;
+
+                case ("GET", "/api/traffic"):
+                    await Write(res, 200, TrafficRows());
                     break;
 
                 case ("POST", "/api/clients"):
@@ -165,6 +171,60 @@ public sealed class ManagementApi : IDisposable
                 // ignored
             }
         }
+    }
+
+    // Живой трафик активных сессий, сгруппированный по ключу клиента.
+    private (Dictionary<string, long> down, Dictionary<string, long> up) LiveByClient()
+    {
+        var down = new Dictionary<string, long>();
+        var up = new Dictionary<string, long>();
+        foreach (var s in _server.ActiveSessions())
+        {
+            string k = s.ClientKey.ToLowerInvariant();
+            down[k] = (down.TryGetValue(k, out var d) ? d : 0) + s.BytesToClient;
+            up[k] = (up.TryGetValue(k, out var u) ? u : 0) + s.BytesFromClient;
+        }
+
+        return (down, up);
+    }
+
+    // Список клиентов с итоговым трафиком (сохранённый за завершённые сессии + живой активных).
+    private object ClientsWithTraffic()
+    {
+        var (liveDown, liveUp) = LiveByClient();
+        return _clients.List().Select(c =>
+        {
+            string k = c.PublicKeyHex.ToLowerInvariant();
+            var t = _traffic.Get(k);
+            long down = t.Down + (liveDown.TryGetValue(k, out var ld) ? ld : 0);
+            long up = t.Up + (liveUp.TryGetValue(k, out var lu) ? lu : 0);
+            bool online = liveDown.ContainsKey(k) || liveUp.ContainsKey(k);
+            return new
+            {
+                publicKeyHex = c.PublicKeyHex, name = c.Name, enabled = c.Enabled, addedUtc = c.AddedUtc,
+                totalDown = down, totalUp = up, online,
+                lastSeenUtc = online ? DateTime.UtcNow : (t.LastSeenUtc == default ? (DateTime?)null : t.LastSeenUtc),
+            };
+        }).ToList();
+    }
+
+    // Трафик по всем ключам (в т.ч. кого уже нет в allowlist), для отдельного экрана/аналитики.
+    private object TrafficRows()
+    {
+        var (liveDown, liveUp) = LiveByClient();
+        var keys = new HashSet<string>(_traffic.Snapshot().Keys);
+        foreach (var k in liveDown.Keys) keys.Add(k);
+        return keys.Select(k =>
+        {
+            var t = _traffic.Get(k);
+            long down = t.Down + (liveDown.TryGetValue(k, out var ld) ? ld : 0);
+            long up = t.Up + (liveUp.TryGetValue(k, out var lu) ? lu : 0);
+            return new
+            {
+                clientKey = k, totalDown = down, totalUp = up,
+                online = liveDown.ContainsKey(k) || liveUp.ContainsKey(k), lastSeenUtc = t.LastSeenUtc
+            };
+        }).OrderByDescending(x => x.totalDown + x.totalUp).ToList();
     }
 
     private static async Task<T?> ReadJson<T>(HttpListenerRequest req)

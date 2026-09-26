@@ -1,6 +1,6 @@
-import {Component, inject, OnInit, signal} from '@angular/core';
+import {Component, inject, OnDestroy, OnInit, signal} from '@angular/core';
 import {ApiService, ClientAccount} from '../../core/api.service';
-import {shortKey} from '../../core/format';
+import {humanBytes, shortKey, timeAgo} from '../../core/format';
 import {FormsModule} from '@angular/forms';
 import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
 import {MatSlideToggleModule} from '@angular/material/slide-toggle';
@@ -10,15 +10,16 @@ import {MatCardModule} from '@angular/material/card';
 import {MatTableModule} from '@angular/material/table';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatInputModule} from '@angular/material/input';
+import {MatTooltipModule} from '@angular/material/tooltip';
 
 @Component({
   imports: [FormsModule, MatCardModule, MatTableModule, MatFormFieldModule, MatInputModule,
-    MatButtonModule, MatIconModule, MatSlideToggleModule, MatSnackBarModule],
+    MatButtonModule, MatIconModule, MatSlideToggleModule, MatSnackBarModule, MatTooltipModule],
   selector: 'app-clients',
   styleUrl: './clients.scss',
   templateUrl: './clients.html',
 })
-export class Clients implements OnInit {
+export class Clients implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private snack = inject(MatSnackBar);
 
@@ -27,12 +28,21 @@ export class Clients implements OnInit {
   newName = '';
   busy = signal(false);
 
-  cols = ['name', 'key', 'enabled', 'added', 'actions'];
+  cols = ['online', 'name', 'key', 'down', 'up', 'seen', 'enabled', 'added', 'actions'];
   key = (k: string) => shortKey(k, 20);
   date = (iso: string) => new Date(iso).toLocaleString();
+  bytes = humanBytes;
+  seen = (c: ClientAccount) => c.online ? 'онлайн' : (c.lastSeenUtc ? timeAgo(c.lastSeenUtc) : '—');
+
+  private timer?: any;
 
   ngOnInit(): void {
     this.reload();
+    this.timer = setInterval(() => this.reload(), 5000);
+  }
+
+  ngOnDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
   }
 
   private reload(): void {
