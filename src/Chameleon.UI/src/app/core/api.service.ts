@@ -91,4 +91,8 @@ export class ApiService {
   setLimit(key: string, limitBytes: number): Observable<any> {
     return this.http.patch(`${this.base}/api/clients/${key}/limit`, {limitBytes});
   }
+
+  kick(key: string): Observable<any> {
+    return this.http.post(`${this.base}/api/clients/${key}/kick`, {});
+  }
 }

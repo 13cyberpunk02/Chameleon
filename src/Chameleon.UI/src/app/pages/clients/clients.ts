@@ -36,6 +36,17 @@ export class Clients implements OnInit, OnDestroy {
   seen = (c: ClientAccount) => c.online ? 'онлайн' : (c.lastSeenUtc ? timeAgo(c.lastSeenUtc) : '-');
   pct = (c: ClientAccount) => c.limitBytes ? Math.min(100, ((c.periodDown || 0) / c.limitBytes) * 100) : 0;
 
+  kick(c: ClientAccount): void {
+    if (!confirm(`Отключить сейчас клиента ${c.name || c.publicKeyHex.slice(0, 12)}?`)) return;
+    this.api.kick(c.publicKeyHex).subscribe({
+      next: (r: any) => {
+        this.toast(`Отключён (сессий: ${r?.closed ?? 0})`);
+        this.reload();
+      },
+      error: () => this.toast('Ошибка отключения'),
+    });
+  }
+
   editLimit(c: ClientAccount): void {
     const curGb = c.limitBytes ? (c.limitBytes / (1024 ** 3)).toFixed(1) : '0';
     const input = prompt(`Лимit download за 30 дней для «${c.name || c.publicKeyHex.slice(0, 12)}», ГБ (0 = безлимит):`, curGb);

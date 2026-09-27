@@ -82,6 +82,11 @@
         <ng-container matColumnDef="actions">
           <th mat-header-cell *matHeaderCellDef></th>
           <td mat-cell *matCellDef="let c" class="right">
+            @if (c.online) {
+              <button matIconButton (click)="kick(c)" matTooltip="Отключить сейчас">
+                <mat-icon>power_settings_new</mat-icon>
+              </button>
+            }
             <button matIconButton (click)="editLimit(c)" matTooltip="Лимит трафика">
               <mat-icon>speed</mat-icon>
             </button>

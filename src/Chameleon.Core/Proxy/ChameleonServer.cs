@@ -35,6 +35,9 @@ public sealed class ChameleonServer : IAsyncDisposable
     /// <summary>Сессия закрыта: (clientKeyHex, bytesToClient, bytesFromClient) - для учёта трафика.</summary>
     public event Action<string, long, long>? SessionClosed;
 
+    /// <summary>Клиент принудительно отключён политикой/вручную: (clientKeyHex, reason).</summary>
+    public event Action<string, string>? ClientKicked;
+
     private readonly bool _proxyProtocol;
     private readonly IClientStore? _clients;
     private readonly ConcurrentDictionary<string, Registered> _sessions = new();
@@ -101,7 +104,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             {
                 using var pre = new NetworkStream(socket, ownsSocket: false);
                 var (pp, _) = await ProxyProtocol.TryReadAsync(pre, cancellationToken).ConfigureAwait(false);
-                if (pp is { Present: true, SourceIp: not null }) remoteIp = pp.SourceIp;
+                if (pp.Present && pp.SourceIp is not null) remoteIp = pp.SourceIp;
             }
 
             carrier = _carrier is null
@@ -116,7 +119,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             if (!await ReadRecordingAsync(carrier, prefix, buffered, hs.Token).ConfigureAwait(false))
             {
                 LogProbe(remoteIp, "нет данных");
-                await Cover(carrier, [.. buffered], cancellationToken).ConfigureAwait(false);
+                await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -135,7 +138,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             }
 
             LogProbe(remoteIp, "не Noise/не join");
-            await Cover(carrier, [.. buffered], cancellationToken).ConfigureAwait(false);
+            await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
         {
@@ -158,6 +161,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         byte[] message1 = await Framing.ReadExactCountAsync(carrier, len, cancellationToken).ConfigureAwait(false);
         var handshake = NoiseIkHandshake.CreateResponder(_serverStatic);
+        HandshakeResult result;
         try
         {
             handshake.ReadMessage1(message1);
@@ -169,9 +173,9 @@ public sealed class ChameleonServer : IAsyncDisposable
             return;
         }
 
-        var result = handshake.WriteMessage2(out byte[] message2);
+        result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
-
+        
         string clientKeyFull = Convert.ToHexString(result.RemoteStaticPublic).ToLowerInvariant();
         if (_clients is not null && !_clients.IsAllowed(clientKeyFull))
         {
@@ -189,7 +193,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         var startedAt = DateTime.UtcNow;
         _sessions[sessionId] = new Registered(session, result.SessionSecret, remoteIp, clientKey, startedAt);
         _events?.Add("connect", remoteIp, $"новая сессия, client={clientKey[..16]}…, активных={_sessions.Count}");
-        
+
         try
         {
             await session.Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -275,7 +279,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         const string body =
             "<!doctype html><html><head><title>Welcome</title></head><body><h1>It works!</h1></body></html>";
-        string response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
+        var response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
                           $"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\nConnection: close\r\n\r\n" + body;
         try
         {
@@ -376,6 +380,48 @@ public sealed class ChameleonServer : IAsyncDisposable
 
         recorder.AddRange(buffer);
         return true;
+    }
+
+    /// <summary>
+    /// Принудительно закрыть все сессии клиента (по публичному ключу). Примитив для
+    /// политик enforcement (лимиты, ручной кик, бан). Возвращает число закрытых сессий.
+    /// </summary>
+    public int CloseSessionsForClient(string clientKeyHex, string reason)
+    {
+        string key = clientKeyHex.ToLowerInvariant();
+        int closed = 0;
+        foreach (var kv in _sessions)
+        {
+            if (!string.Equals(kv.Value.ClientKey, key, StringComparison.OrdinalIgnoreCase)) continue;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await kv.Value.Session.DisposeAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    // ignored
+                }
+            });
+            closed++;
+        }
+
+        if (closed > 0)
+        {
+            _events?.Add("kicked", "-",
+                $"клиент {key[..Math.Min(16, key.Length)]}… отключён: {reason} (сессий: {closed})");
+            try
+            {
+                ClientKicked?.Invoke(key, reason);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        return closed;
     }
 
     /// <summary>Снимок активных сессий (для мониторинга/API). Дёшево - только счётчики.</summary>

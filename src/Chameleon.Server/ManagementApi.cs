@@ -5,7 +5,7 @@ using Chameleon.Core.Proxy;
 namespace Chameleon.Server;
 
 /// <summary>
-/// Лёгкий management REST API (на HttpListener - без ASP.NET, тот же маленький
+/// Лёгкий management REST API (на HttpListener — без ASP.NET, тот же маленький
 /// образ). Отдаёт статистику/сессии/события и управляет allowlist'ом клиентов.
 /// Защищён Bearer-токеном. Предназначен для внутренней сети / за nginx с TLS.
 /// </summary>
@@ -104,8 +104,8 @@ public sealed class ManagementApi : IDisposable
                     break;
 
                 case ("GET", "/api/events"):
-                    int n = int.TryParse(req.QueryString["n"], out int v) ? Math.Clamp(v, 1, 2000) : 100;
-                    await Write(res, 200, _events.Recent(n));
+                    int c = int.TryParse(req.QueryString["n"], out int v) ? Math.Clamp(v, 1, 2000) : 100;
+                    await Write(res, 200, _events.Recent(c));
                     break;
 
                 case ("GET", "/api/clients"):
@@ -115,6 +115,14 @@ public sealed class ManagementApi : IDisposable
                 case ("GET", "/api/traffic"):
                     await Write(res, 200, TrafficRows());
                     break;
+
+                case ("POST", var p) when p.EndsWith("/kick") && p.StartsWith("/api/clients/"):
+                {
+                    string key = p["/api/clients/".Length..^"/kick".Length];
+                    int n = _server.CloseSessionsForClient(key, "отключён вручную из панели");
+                    await Write(res, 200, new { ok = true, closed = n });
+                    break;
+                }
 
                 case ("POST", "/api/clients"):
                 {
@@ -185,7 +193,7 @@ public sealed class ManagementApi : IDisposable
             }
         }
     }
-
+    
     private (Dictionary<string, long> down, Dictionary<string, long> up) LiveByClient()
     {
         var down = new Dictionary<string, long>();
@@ -209,7 +217,7 @@ public sealed class ManagementApi : IDisposable
             long ld = liveDown.TryGetValue(k, out var d) ? d : 0;
             long lu = liveUp.TryGetValue(k, out var u) ? u : 0;
             bool online = liveDown.ContainsKey(k) || liveUp.ContainsKey(k);
-            long periodDown = r.PeriodDown + ld; // download за период + живой
+            long periodDown = r.PeriodDown + ld;
             bool overLimit = r.LimitBytes > 0 && periodDown >= r.LimitBytes;
             long? remaining = r.LimitBytes > 0 ? Math.Max(0, r.LimitBytes - periodDown) : (long?)null;
             return new
