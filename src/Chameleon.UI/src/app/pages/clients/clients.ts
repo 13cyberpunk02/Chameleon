@@ -11,10 +11,11 @@ import {MatTableModule} from '@angular/material/table';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatInputModule} from '@angular/material/input';
 import {MatTooltipModule} from '@angular/material/tooltip';
+import {MatProgressBar} from '@angular/material/progress-bar';
 
 @Component({
   imports: [FormsModule, MatCardModule, MatTableModule, MatFormFieldModule, MatInputModule,
-    MatButtonModule, MatIconModule, MatSlideToggleModule, MatSnackBarModule, MatTooltipModule],
+    MatButtonModule, MatIconModule, MatSlideToggleModule, MatSnackBarModule, MatTooltipModule, MatProgressBar],
   selector: 'app-clients',
   styleUrl: './clients.scss',
   templateUrl: './clients.html',
