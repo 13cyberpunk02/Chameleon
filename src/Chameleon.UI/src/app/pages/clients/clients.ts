@@ -28,11 +28,31 @@ export class Clients implements OnInit, OnDestroy {
   newName = '';
   busy = signal(false);
 
-  cols = ['online', 'name', 'key', 'down', 'up', 'seen', 'enabled', 'added', 'actions'];
+  cols = ['online', 'name', 'key', 'down', 'up', 'limit', 'seen', 'enabled', 'added', 'actions'];
   key = (k: string) => shortKey(k, 20);
   date = (iso: string) => new Date(iso).toLocaleString();
   bytes = humanBytes;
-  seen = (c: ClientAccount) => c.online ? 'онлайн' : (c.lastSeenUtc ? timeAgo(c.lastSeenUtc) : '—');
+  seen = (c: ClientAccount) => c.online ? 'онлайн' : (c.lastSeenUtc ? timeAgo(c.lastSeenUtc) : '-');
+  pct = (c: ClientAccount) => c.limitBytes ? Math.min(100, ((c.periodDown || 0) / c.limitBytes) * 100) : 0;
+
+  editLimit(c: ClientAccount): void {
+    const curGb = c.limitBytes ? (c.limitBytes / (1024 ** 3)).toFixed(1) : '0';
+    const input = prompt(`Лимit download за 30 дней для «${c.name || c.publicKeyHex.slice(0, 12)}», ГБ (0 = безлимит):`, curGb);
+    if (input === null) return;
+    const gb = parseFloat(input.replace(',', '.'));
+    if (isNaN(gb) || gb < 0) {
+      this.toast('Некорректное число');
+      return;
+    }
+    const bytes = Math.round(gb * (1024 ** 3));
+    this.api.setLimit(c.publicKeyHex, bytes).subscribe({
+      next: () => {
+        this.toast(gb === 0 ? 'Лимит снят' : `Лимит: ${gb} ГБ`);
+        this.reload();
+      },
+      error: () => this.toast('Ошибка установки лимита'),
+    });
+  }
 
   private timer?: any;
 

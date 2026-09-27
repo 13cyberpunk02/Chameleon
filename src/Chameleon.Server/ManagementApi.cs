@@ -14,8 +14,7 @@ public sealed class ManagementApi : IDisposable
     private readonly HttpListener _listener = new();
     private readonly ChameleonServer _server;
     private readonly ServerEventLog _events;
-    private readonly IClientStore _clients;
-    private readonly TrafficStore _traffic;
+    private readonly SqliteStore _store;
     private readonly string _token;
     private readonly string _serverPublicKey;
     private readonly string _sni;
@@ -24,12 +23,11 @@ public sealed class ManagementApi : IDisposable
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public ManagementApi(string prefix, string token, ChameleonServer server, ServerEventLog events,
-        IClientStore clients, TrafficStore traffic, string serverPublicKey, string sni)
+        SqliteStore store, string serverPublicKey, string sni)
     {
         _server = server;
         _events = events;
-        _clients = clients;
-        _traffic = traffic;
+        _store = store;
         _token = token;
         _serverPublicKey = serverPublicKey;
         _sni = sni;
@@ -92,7 +90,7 @@ public sealed class ManagementApi : IDisposable
                     await Write(res, 200, new
                     {
                         publicKey = _serverPublicKey, sni = _sni,
-                        allowlist = _clients.Enforced,
+                        allowlist = _store.Enforced,
                         uptimeSeconds = (long)(DateTime.UtcNow - _startedUtc).TotalSeconds,
                     });
                     break;
@@ -127,8 +125,23 @@ public sealed class ManagementApi : IDisposable
                         break;
                     }
 
-                    _clients.Add(new ClientAccount { PublicKeyHex = body.PublicKey.Trim(), Name = body.Name ?? "" });
+                    _store.Add(new ClientAccount { PublicKeyHex = body.PublicKey.Trim(), Name = body.Name ?? "" });
                     await Write(res, 200, new { ok = true });
+                    break;
+                }
+
+                case ("PATCH", var p) when p.EndsWith("/limit") && p.StartsWith("/api/clients/"):
+                {
+                    string key = p["/api/clients/".Length..^"/limit".Length];
+                    var body = await ReadJson<LimitPatch>(req);
+                    if (body is null)
+                    {
+                        await Write(res, 400, new { error = "bad body" });
+                        break;
+                    }
+
+                    bool ok = _store.SetLimit(key, body.LimitBytes);
+                    await Write(res, ok ? 200 : 404, new { ok });
                     break;
                 }
 
@@ -142,7 +155,7 @@ public sealed class ManagementApi : IDisposable
                         break;
                     }
 
-                    bool ok = _clients.SetEnabled(key, body.Enabled);
+                    bool ok = _store.SetEnabled(key, body.Enabled);
                     await Write(res, ok ? 200 : 404, new { ok });
                     break;
                 }
@@ -150,7 +163,7 @@ public sealed class ManagementApi : IDisposable
                 case ("DELETE", var p) when p.StartsWith("/api/clients/"):
                 {
                     string key = p["/api/clients/".Length..];
-                    bool ok = _clients.Remove(key);
+                    bool ok = _store.Remove(key);
                     await Write(res, ok ? 200 : 404, new { ok });
                     break;
                 }
@@ -173,7 +186,6 @@ public sealed class ManagementApi : IDisposable
         }
     }
 
-    // Живой трафик активных сессий, сгруппированный по ключу клиента.
     private (Dictionary<string, long> down, Dictionary<string, long> up) LiveByClient()
     {
         var down = new Dictionary<string, long>();
@@ -188,44 +200,31 @@ public sealed class ManagementApi : IDisposable
         return (down, up);
     }
 
-    // Список клиентов с итоговым трафиком (сохранённый за завершённые сессии + живой активных).
     private object ClientsWithTraffic()
     {
         var (liveDown, liveUp) = LiveByClient();
-        return _clients.List().Select(c =>
+        return _store.Rows().Select(r =>
         {
-            string k = c.PublicKeyHex.ToLowerInvariant();
-            var t = _traffic.Get(k);
-            long down = t.Down + (liveDown.TryGetValue(k, out var ld) ? ld : 0);
-            long up = t.Up + (liveUp.TryGetValue(k, out var lu) ? lu : 0);
+            string k = r.Key;
+            long ld = liveDown.TryGetValue(k, out var d) ? d : 0;
+            long lu = liveUp.TryGetValue(k, out var u) ? u : 0;
             bool online = liveDown.ContainsKey(k) || liveUp.ContainsKey(k);
+            long periodDown = r.PeriodDown + ld; // download за период + живой
+            bool overLimit = r.LimitBytes > 0 && periodDown >= r.LimitBytes;
+            long? remaining = r.LimitBytes > 0 ? Math.Max(0, r.LimitBytes - periodDown) : (long?)null;
             return new
             {
-                publicKeyHex = c.PublicKeyHex, name = c.Name, enabled = c.Enabled, addedUtc = c.AddedUtc,
-                totalDown = down, totalUp = up, online,
-                lastSeenUtc = online ? DateTime.UtcNow : (t.LastSeenUtc == default ? (DateTime?)null : t.LastSeenUtc),
+                publicKeyHex = r.Key, name = r.Name, enabled = r.Enabled, addedUtc = r.AddedUtc,
+                totalDown = r.TotalDown + ld, totalUp = r.TotalUp + lu,
+                periodDown, periodUp = r.PeriodUp + lu,
+                limitBytes = r.LimitBytes, remaining, overLimit,
+                online, lastSeenUtc = online ? DateTime.UtcNow : r.LastSeenUtc,
+                periodStart = r.PeriodStart,
             };
         }).ToList();
     }
 
-    // Трафик по всем ключам (в т.ч. кого уже нет в allowlist), для отдельного экрана/аналитики.
-    private object TrafficRows()
-    {
-        var (liveDown, liveUp) = LiveByClient();
-        var keys = new HashSet<string>(_traffic.Snapshot().Keys);
-        foreach (var k in liveDown.Keys) keys.Add(k);
-        return keys.Select(k =>
-        {
-            var t = _traffic.Get(k);
-            long down = t.Down + (liveDown.TryGetValue(k, out var ld) ? ld : 0);
-            long up = t.Up + (liveUp.TryGetValue(k, out var lu) ? lu : 0);
-            return new
-            {
-                clientKey = k, totalDown = down, totalUp = up,
-                online = liveDown.ContainsKey(k) || liveUp.ContainsKey(k), lastSeenUtc = t.LastSeenUtc
-            };
-        }).OrderByDescending(x => x.totalDown + x.totalUp).ToList();
-    }
+    private object TrafficRows() => ClientsWithTraffic();
 
     private static async Task<T?> ReadJson<T>(HttpListenerRequest req)
     {
@@ -254,6 +253,8 @@ public sealed class ManagementApi : IDisposable
     private sealed record ClientCreate(string PublicKey, string? Name);
 
     private sealed record ClientPatch(bool Enabled);
+
+    private sealed record LimitPatch(long LimitBytes);
 
     public void Dispose()
     {

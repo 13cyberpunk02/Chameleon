@@ -45,6 +45,10 @@ export interface ClientAccount {
   totalUp?: number;
   online?: boolean;
   lastSeenUtc?: string | null;
+  periodDown?: number;
+  limitBytes?: number;
+  remaining?: number | null;
+  overLimit?: boolean;
 }
 
 @Injectable({providedIn: 'root'})
@@ -82,5 +86,9 @@ export class ApiService {
 
   removeClient(key: string): Observable<any> {
     return this.http.delete(`${this.base}/api/clients/${key}`);
+  }
+
+  setLimit(key: string, limitBytes: number): Observable<any> {
+    return this.http.patch(`${this.base}/api/clients/${key}/limit`, {limitBytes});
   }
 }

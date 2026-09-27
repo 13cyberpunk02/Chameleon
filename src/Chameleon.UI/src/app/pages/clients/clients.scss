@@ -60,3 +60,33 @@
   background: #3fb950;
   box-shadow: 0 0 6px #3fb950;
 }
+
+.lim {
+  min-width: 140px;
+}
+
+.lim mat-progress-bar {
+  border-radius: 4px;
+  height: 6px;
+}
+
+.lim mat-progress-bar.over {
+  --mdc-linear-progress-active-indicator-color: var(--mat-sys-error);
+}
+
+.lim-txt {
+  font-size: 11px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.lim-txt.over {
+  color: var(--mat-sys-error);
+}
+
+.chip.over {
+  background: rgba(248, 81, 73, .2);
+  color: #f85149;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+}
