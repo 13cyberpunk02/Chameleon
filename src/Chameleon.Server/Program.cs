@@ -50,7 +50,7 @@ IPEndPoint endpoint = ParseListen(listen);
 DnsEndPoint? decoyEndpoint = decoy is null ? null : ParseDecoy(decoy);
 
 var store = new SqliteStore(dbFile, enforced: allowlist);
-store.MigrateFromJson(clientsFile, trafficFile); // разовый перенос из старых json
+store.MigrateFromJson(clientsFile, trafficFile);
 foreach (var k in (Environment.GetEnvironmentVariable("CHAMELEON_CLIENTS") ?? "").Split(',',
              StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
     store.Add(new Chameleon.Core.Proxy.ClientAccount { PublicKeyHex = k, Name = "env" });
@@ -148,7 +148,7 @@ static X509Certificate2 LoadCert(string? certPem, string? keyPem, string? pfx, s
 {
     if (certPem is { Length: > 0 } && keyPem is { Length: > 0 } && File.Exists(certPem) && File.Exists(keyPem))
     {
-        using X509Certificate2 fromPem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
+        using var fromPem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
        
         return LoadPfxBytes(fromPem.Export(X509ContentType.Pfx), null);
     }
@@ -182,8 +182,8 @@ static string BuildLink(string publicAddr, string keyHex, string sni, string nam
     int i = publicAddr.LastIndexOf(':');
     string host = i > 0 ? publicAddr[..i] : publicAddr;
     int port = i > 0 && int.TryParse(publicAddr[(i + 1)..], out int p) ? p : 443;
-    return new Chameleon.Core.Proxy.ChameleonLink(host, port, keyHex, sni,
-        System.Array.Empty<string>(), name).Build();
+    return new ChameleonLink(host, port, keyHex, sni,
+        [], name).Build();
 }
 
 static string Bytes(long b)
