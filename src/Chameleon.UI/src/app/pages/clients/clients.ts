@@ -12,10 +12,12 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatInputModule} from '@angular/material/input';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {MatProgressBar} from '@angular/material/progress-bar';
+import {MatMenu, MatMenuItem, MatMenuTrigger} from '@angular/material/menu';
+import {RouterLink} from '@angular/router';
 
 @Component({
   imports: [FormsModule, MatCardModule, MatTableModule, MatFormFieldModule, MatInputModule,
-    MatButtonModule, MatIconModule, MatSlideToggleModule, MatSnackBarModule, MatTooltipModule, MatProgressBar],
+    MatButtonModule, MatIconModule, MatSlideToggleModule, MatSnackBarModule, MatTooltipModule, MatProgressBar, MatMenuItem, MatMenu, RouterLink, MatMenuTrigger],
   selector: 'app-clients',
   styleUrl: './clients.scss',
   templateUrl: './clients.html',

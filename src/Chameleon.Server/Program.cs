@@ -1,18 +1,18 @@
-﻿using System.Net;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
-using Chameleon.Core.Crypto;
-using Chameleon.Core.Proxy;
-using Chameleon.Core.Transport;
-using Chameleon.Server;
-
-// Сервер Chameleon. Конфигурация через переменные окружения (удобно для Docker):
+﻿// Сервер Chameleon. Конфигурация через переменные окружения (удобно для Docker):
 //   CHAMELEON_LISTEN   адрес прослушивания        (по умолчанию 0.0.0.0:8443)
 //   CHAMELEON_KEY_FILE файл со статическим ключом  (по умолчанию /data/server.key)
 //   CHAMELEON_SNI      домен прикрытия / CN серта  (по умолчанию www.example-cdn.com)
 //   CHAMELEON_CERT_PFX путь к .pfx (боевой серт)   (иначе - самоподписанный по SNI)
 //   CHAMELEON_CERT_PASS пароль к .pfx
 //   CHAMELEON_DECOY    сайт-декой host:port        (иначе - статическая заглушка)
+
+using System.Net;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using Chameleon.Core.Crypto;
+using Chameleon.Core.Proxy;
+using Chameleon.Core.Transport;
+using Chameleon.Server;
 
 string listen = Env("CHAMELEON_LISTEN", "0.0.0.0:8443");
 string keyFile = Env("CHAMELEON_KEY_FILE", "/data/server.key");
@@ -41,7 +41,7 @@ string pubKeyHex = Convert.ToHexString(serverStatic.Public).ToLowerInvariant();
 Console.WriteLine("СТАТИЧЕСКИЙ ПУБЛИЧНЫЙ КЛЮЧ СЕРВЕРА:");
 Console.WriteLine($"  {pubKeyHex}");
 Console.WriteLine();
-Console.WriteLine("КОНФИГ-ССЫЛКА (скопируйте целиком в клиент -> «Вставить из буфера»):");
+Console.WriteLine("КОНФИГ-ССЫЛКА (скопируйте целиком в клиент → «Вставить из буфера»):");
 Console.WriteLine($"  {BuildLink(publicAddr, pubKeyHex, sni, profileName)}");
 Console.WriteLine();
 
@@ -65,13 +65,33 @@ events.Logged += e =>
 await using var server = ChameleonServer.Start(endpoint, serverStatic, TlsCarrier.Server(cert), decoyEndpoint,
     events: events, proxyProtocol: proxyProtocol, clients: store);
 
-server.SessionClosed += (key, down, up) => store.AddClosedSession(key, down, up);
+server.SessionClosed += (sid, key, down, up) => store.AddClosedSession(key, down, up);
+
+int histSampleSec = int.TryParse(Env("CHAMELEON_HISTORY_SAMPLE", "15"), out var hs) ? Math.Max(5, hs) : 15;
+var historySampler = new HistorySampler(server, store, TimeSpan.FromSeconds(histSampleSec));
+historySampler.Start();
 
 int enforceSec = int.TryParse(Env("CHAMELEON_ENFORCE_INTERVAL", "10"), out var es) ? Math.Max(3, es) : 10;
 var enforcement = new EnforcementRunner(server, store,
-    [new LimitPolicy()], TimeSpan.FromSeconds(enforceSec));
+    new IEnforcementPolicy[] { new LimitPolicy() }, TimeSpan.FromSeconds(enforceSec));
 enforcement.Start();
 Console.WriteLine($"enforcement: политик={1}, интервал={enforceSec}с");
+
+int historyDays = int.TryParse(Env("CHAMELEON_HISTORY_DAYS", "90"), out var hd) ? Math.Max(7, hd) : 90;
+store.PurgeHistory(historyDays);
+using var purgeTimer = new Timer(_ =>
+    {
+        try
+        {
+            store.PurgeHistory(historyDays);
+        }
+        catch
+        {
+            // ignored
+        }
+    },
+    null, TimeSpan.FromHours(24), TimeSpan.FromHours(24));
+Console.WriteLine($"история трафика: хранение {historyDays} дней");
 Console.WriteLine($"сервер запущен на {server.EndPoint}. Ctrl+C для остановки.");
 
 string? apiToken = Environment.GetEnvironmentVariable("CHAMELEON_API_TOKEN");
@@ -101,6 +121,7 @@ Console.CancelKeyPress += (_, e) =>
 };
 await stop.Task;
 api?.Dispose();
+historySampler.Dispose();
 enforcement.Dispose();
 store.Dispose();
 
@@ -119,7 +140,7 @@ static KeyPair LoadOrCreateKey(string path)
     string? dir = Path.GetDirectoryName(path);
     if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
     File.WriteAllText(path, Convert.ToHexString(fresh).ToLowerInvariant());
-    Console.WriteLine($"(сгенерирован новый ключ сервера -> {path})");
+    Console.WriteLine($"(сгенерирован новый ключ сервера → {path})");
     return new KeyPair(fresh, X25519.ScalarMultBase(fresh));
 }
 
@@ -128,11 +149,13 @@ static X509Certificate2 LoadCert(string? certPem, string? keyPem, string? pfx, s
     if (certPem is { Length: > 0 } && keyPem is { Length: > 0 } && File.Exists(certPem) && File.Exists(keyPem))
     {
         using X509Certificate2 fromPem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
+       
         return LoadPfxBytes(fromPem.Export(X509ContentType.Pfx), null);
     }
 
     if (pfx is { Length: > 0 } && File.Exists(pfx))
         return LoadPfxBytes(File.ReadAllBytes(pfx), pass);
+
     return TlsCarrier.CreateSelfSignedCertificate(sni);
 }
 
@@ -159,13 +182,13 @@ static string BuildLink(string publicAddr, string keyHex, string sni, string nam
     int i = publicAddr.LastIndexOf(':');
     string host = i > 0 ? publicAddr[..i] : publicAddr;
     int port = i > 0 && int.TryParse(publicAddr[(i + 1)..], out int p) ? p : 443;
-    return new ChameleonLink(host, port, keyHex, sni,
-        [], name).Build();
+    return new Chameleon.Core.Proxy.ChameleonLink(host, port, keyHex, sni,
+        System.Array.Empty<string>(), name).Build();
 }
 
 static string Bytes(long b)
 {
-    string[] u = ["B", "KB", "MB", "GB", "TB"];
+    string[] u = { "B", "KB", "MB", "GB", "TB" };
     double v = b;
     int k = 0;
     while (v >= 1024 && k < u.Length - 1)

@@ -25,7 +25,7 @@ public sealed class SqliteStore : IClientStore, IDisposable
     private readonly bool _enforced;
     private static readonly TimeSpan Period = TimeSpan.FromDays(30);
 
-    private volatile HashSet<string> _allowedCache = [];
+    private volatile HashSet<string> _allowedCache = new();
     private readonly object _lock = new();
 
     public SqliteStore(string dbPath, bool enforced)
@@ -66,6 +66,14 @@ public sealed class SqliteStore : IClientStore, IDisposable
                 period_up      INTEGER NOT NULL DEFAULT 0,
                 last_seen_utc  TEXT
             );
+            CREATE TABLE IF NOT EXISTS traffic_daily (
+                key   TEXT NOT NULL,
+                day   TEXT NOT NULL,
+                down  INTEGER NOT NULL DEFAULT 0,
+                up    INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (key, day)
+            );
+            CREATE INDEX IF NOT EXISTS ix_daily_day ON traffic_daily(day);
         ");
     }
 
@@ -113,7 +121,7 @@ public sealed class SqliteStore : IClientStore, IDisposable
     private sealed class LegacyClients
     {
         public bool Enforced { get; set; }
-        public List<ClientAccount> Clients { get; set; } = [];
+        public List<ClientAccount> Clients { get; set; } = new();
     }
 
     private sealed class LegacyTraffic
@@ -210,6 +218,54 @@ public sealed class SqliteStore : IClientStore, IDisposable
         RefreshCacheKey(c, key);
     }
 
+
+    /// <summary>Записать дельту трафика в историю (клиент, сегодня-UTC). Вызывает сэмплер.</summary>
+    public void AddHistory(string key, long down, long up)
+    {
+        if (down <= 0 && up <= 0) return;
+        using var c = Open();
+        AddDaily(c, key.ToLowerInvariant(), down, up);
+    }
+
+    private static void AddDaily(IDbConnection c, string key, long down, long up)
+    {
+        string day = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        c.Execute(@"INSERT INTO traffic_daily(key,day,down,up) VALUES(@k,@day,@d,@u)
+                    ON CONFLICT(key,day) DO UPDATE SET down=down+@d, up=up+@u",
+            new { k = key, day, d = down, u = up });
+    }
+
+    /// <summary>История по дням для одного клиента за последние N дней (возрастание дат).</summary>
+    public IReadOnlyList<(string Day, long Down, long Up)> ClientHistory(string key, int days)
+    {
+        using var c = Open();
+        string from = DateTime.UtcNow.Date.AddDays(-Math.Clamp(days, 1, 365)).ToString("yyyy-MM-dd");
+        return c.Query<(string, long, long)>(
+            "SELECT day, down, up FROM traffic_daily WHERE key=@k AND day>=@from ORDER BY day",
+            new { k = key.ToLowerInvariant(), from }).ToList();
+    }
+
+    /// <summary>Суммарная история сервера по дням за последние N дней.</summary>
+    public IReadOnlyList<(string Day, long Down, long Up)> ServerHistory(int days)
+    {
+        using var c = Open();
+        string from = DateTime.UtcNow.Date.AddDays(-Math.Clamp(days, 1, 365)).ToString("yyyy-MM-dd");
+        return
+        [
+            .. c.Query<(string, long, long)>(
+                "SELECT day, SUM(down), SUM(up) FROM traffic_daily WHERE day>=@from GROUP BY day ORDER BY day",
+                new { from })
+        ];
+    }
+
+    /// <summary>Очистка истории старше retentionDays. Вызывать периодически.</summary>
+    public void PurgeHistory(int retentionDays)
+    {
+        using var c = Open();
+        string before = DateTime.UtcNow.Date.AddDays(-Math.Max(1, retentionDays)).ToString("yyyy-MM-dd");
+        c.Execute("DELETE FROM traffic_daily WHERE day<@before", new { before });
+    }
+
     /// <summary>Сдвиг скользящего периода: если истёк - обнуляем period_* и двигаем period_start.</summary>
     private void RollPeriodIfNeeded(IDbConnection c, string key)
     {
@@ -245,9 +301,12 @@ public sealed class SqliteStore : IClientStore, IDisposable
     {
         using var c = Open();
         foreach (var k in c.Query<string>("SELECT key FROM clients")) RollPeriodIfNeeded(c, k);
-        return c.Query<ClientRow>(@"SELECT c.*, t.total_down, t.total_up, t.period_down, t.period_up, t.last_seen_utc
+        return
+        [
+            .. c.Query<ClientRow>(@"SELECT c.*, t.total_down, t.total_up, t.period_down, t.period_up, t.last_seen_utc
                                     FROM clients c LEFT JOIN traffic t ON t.key=c.key ORDER BY c.name")
-            .Select(r => r.ToTrafficRow()).ToList();
+                .Select(r => r.ToTrafficRow())
+        ];
     }
 
     private void RefreshCache()
@@ -300,7 +359,7 @@ public sealed class SqliteStore : IClientStore, IDisposable
             AddedUtc = Parse(added_utc) ?? DateTime.UtcNow,
         };
 
-        public SqliteStore.TrafficRow ToTrafficRow() => new(
+        public TrafficRow ToTrafficRow() => new(
             key, name, enabled != 0, Parse(added_utc) ?? DateTime.UtcNow, limit_bytes,
             total_down ?? 0, total_up ?? 0, period_down ?? 0, period_up ?? 0,
             Parse(last_seen_utc), Parse(period_start) ?? DateTime.UtcNow);

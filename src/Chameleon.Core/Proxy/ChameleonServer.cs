@@ -33,7 +33,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly ServerEventLog? _events;
 
     /// <summary>Сессия закрыта: (clientKeyHex, bytesToClient, bytesFromClient) - для учёта трафика.</summary>
-    public event Action<string, long, long>? SessionClosed;
+    public event Action<string, string, long, long>? SessionClosed;
 
     /// <summary>Клиент принудительно отключён политикой/вручную: (clientKeyHex, reason).</summary>
     public event Action<string, string>? ClientKicked;
@@ -119,7 +119,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             if (!await ReadRecordingAsync(carrier, prefix, buffered, hs.Token).ConfigureAwait(false))
             {
                 LogProbe(remoteIp, "нет данных");
-                await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
+                await Cover(carrier, [.. buffered], cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -138,7 +138,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             }
 
             LogProbe(remoteIp, "не Noise/не join");
-            await Cover(carrier, buffered.ToArray(), cancellationToken).ConfigureAwait(false);
+            await Cover(carrier, [.. buffered], cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
         {
@@ -161,7 +161,6 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         byte[] message1 = await Framing.ReadExactCountAsync(carrier, len, cancellationToken).ConfigureAwait(false);
         var handshake = NoiseIkHandshake.CreateResponder(_serverStatic);
-        HandshakeResult result;
         try
         {
             handshake.ReadMessage1(message1);
@@ -173,7 +172,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             return;
         }
 
-        result = handshake.WriteMessage2(out byte[] message2);
+        var result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
         
         string clientKeyFull = Convert.ToHexString(result.RemoteStaticPublic).ToLowerInvariant();
@@ -209,7 +208,7 @@ public sealed class ChameleonServer : IAsyncDisposable
                 $"сессия закрыта, {FormatDuration(dur)}, ↑{Human(session.BytesReceived)} ↓{Human(session.BytesSent)}, активных={_sessions.Count}");
             try
             {
-                SessionClosed?.Invoke(clientKeyFull, session.BytesSent, session.BytesReceived);
+                SessionClosed?.Invoke(sessionId, clientKeyFull, session.BytesSent, session.BytesReceived);
             }
             catch
             {
@@ -279,7 +278,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         const string body =
             "<!doctype html><html><head><title>Welcome</title></head><body><h1>It works!</h1></body></html>";
-        var response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
+        string response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
                           $"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\nConnection: close\r\n\r\n" + body;
         try
         {
@@ -347,7 +346,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     }
 
     private void LogProbe(string remoteIp, string why)
-        => _events?.Add("probe", remoteIp, $"чужак/зонд -> декой ({why})");
+        => _events?.Add("probe", remoteIp, $"чужак/зонд → декой ({why})");
 
     private static string Human(long bytes)
     {
@@ -433,7 +432,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         {
             var r = kv.Value;
             list.Add(new SessionInfo(
-                SessionId: kv.Key[..Math.Min(16, kv.Key.Length)].ToLowerInvariant(),
+                SessionId: kv.Key.ToLowerInvariant(),
                 RemoteIp: r.RemoteIp,
                 ClientKey: r.ClientKey,
                 StartedUtc: r.StartedUtc,
