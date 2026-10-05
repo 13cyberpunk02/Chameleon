@@ -16,9 +16,37 @@
         <mat-icon>add</mat-icon>
         Добавить
       </button>
+      <button matButton (click)="create()" [disabled]="busy()" matTooltip="Сервер сгенерит ключ и готовую ссылку">
+        <mat-icon>auto_awesome</mat-icon>
+        Создать клиента
+      </button>
     </div>
   </mat-card-content>
 </mat-card>
+
+@if (generated(); as g) {
+  <mat-card appearance="outlined" class="gen">
+    <mat-card-content>
+      <div class="gen-head">
+        <div>
+          <mat-icon>check_circle</mat-icon>
+          Клиент создан: <b>{{ g.name || '(без имени)' }}</b></div>
+        <button matIconButton (click)="generated.set(null)">
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
+      <p class="muted">Передайте эту ссылку пользователю (в ней уже всё: сервер + его личный ключ). Показывается один
+        раз.</p>
+      <div class="gen-link">
+        <input matInput [value]="g.link" readonly class="mono" #linkInput/>
+        <button matButton="filled" color="primary" (click)="copyLink(g.link)">
+          <mat-icon>content_copy</mat-icon>
+          Копировать
+        </button>
+      </div>
+    </mat-card-content>
+  </mat-card>
+}
 
 <mat-card appearance="outlined">
   <mat-card-content>

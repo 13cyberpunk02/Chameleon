@@ -10,19 +10,29 @@ sealed class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        void Dump(string where, object? ex) =>
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(AppContext.BaseDirectory, "chameleon-crash.txt"),
+                $"=== {where} ===\n{ex}\n\n");
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Dump("AppDomain", e.ExceptionObject);
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) => Dump("Task", e.Exception);
+
         try
         {
+            Dump("start", "запуск BuildAvaloniaApp");   // маркер, что дошли сюда
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            Dump("exit", "нормальный выход");
         }
         catch (Exception ex)
         {
-            File.WriteAllText("chameleon-crash.txt", ex.ToString());
+            Dump("Main", ex);
             throw;
         }
     }
     
     // Avalonia configuration, don't remove; also used by visual designer.
-    public static AppBuilder BuildAvaloniaApp() =>
+    private static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
             .UsePlatformDetect()
 #if DEBUG

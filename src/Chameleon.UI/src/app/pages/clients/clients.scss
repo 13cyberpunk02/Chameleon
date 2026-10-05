@@ -44,6 +44,40 @@
   padding: 16px;
 }
 
+.gen {
+  margin-bottom: 16px;
+  border-color: var(--mat-sys-primary);
+}
+
+.gen-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 15px;
+}
+
+.gen-head mat-icon {
+  color: var(--mat-sys-primary);
+  vertical-align: middle;
+}
+
+.gen-link {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.gen-link input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 8px;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font-size: 12px;
+}
+
 .right {
   text-align: right;
 }

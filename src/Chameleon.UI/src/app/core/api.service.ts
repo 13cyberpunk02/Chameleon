@@ -36,6 +36,12 @@ export interface LogEntry {
   detail: string;
 }
 
+export interface HistoryPoint {
+  day: string;
+  down: number;
+  up: number;
+}
+
 export interface ClientAccount {
   publicKeyHex: string;
   name: string;
@@ -80,6 +86,11 @@ export class ApiService {
     return this.http.post(`${this.base}/api/clients`, {publicKey, name});
   }
 
+  generateClient(name: string): Observable<{ publicKey: string; privateKey: string; name: string; link: string }> {
+    return this.http.post<{ publicKey: string; privateKey: string; name: string; link: string }>(
+      `${this.base}/api/clients/generate`, {name});
+  }
+
   setEnabled(key: string, enabled: boolean): Observable<any> {
     return this.http.patch(`${this.base}/api/clients/${key}`, {enabled});
   }
@@ -94,5 +105,13 @@ export class ApiService {
 
   kick(key: string): Observable<any> {
     return this.http.post(`${this.base}/api/clients/${key}/kick`, {});
+  }
+
+  serverHistory(days = 30): Observable<HistoryPoint[]> {
+    return this.http.get<HistoryPoint[]>(`${this.base}/api/history/server?days=${days}`);
+  }
+
+  clientHistory(key: string, days = 30): Observable<HistoryPoint[]> {
+    return this.http.get<HistoryPoint[]>(`${this.base}/api/history/client/${key}?days=${days}`);
   }
 }

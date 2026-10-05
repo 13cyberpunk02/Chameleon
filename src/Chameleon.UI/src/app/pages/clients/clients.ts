@@ -27,6 +27,7 @@ export class Clients implements OnInit, OnDestroy {
   private snack = inject(MatSnackBar);
 
   clients = signal<ClientAccount[]>([]);
+  generated = signal<{ publicKey: string; privateKey: string; name: string; link: string } | null>(null);
   newKey = '';
   newName = '';
   busy = signal(false);
@@ -85,6 +86,29 @@ export class Clients implements OnInit, OnDestroy {
 
   private toast(m: string): void {
     this.snack.open(m, 'OK', {duration: 3000});
+  }
+
+  create(): void {
+    const name = prompt('Имя клиента (например, «Ноут Ивана»):', '');
+    if (name === null) return;
+    this.busy.set(true);
+    this.api.generateClient(name.trim()).subscribe({
+      next: (g) => {
+        this.busy.set(false);
+        this.generated.set(g);
+        this.reload();
+        this.toast('Клиент создан');
+      },
+      error: () => {
+        this.busy.set(false);
+        this.toast('Ошибка создания');
+      },
+    });
+  }
+
+  copyLink(link: string): void {
+    navigator.clipboard?.writeText(link).then(() => this.toast('Ссылка скопирована'), () => {
+    });
   }
 
   add(): void {

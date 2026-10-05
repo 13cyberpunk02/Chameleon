@@ -14,30 +14,30 @@ using Chameleon.Core.Proxy;
 using Chameleon.Core.Transport;
 using Chameleon.Server;
 
-string listen = Env("CHAMELEON_LISTEN", "0.0.0.0:8443");
-string keyFile = Env("CHAMELEON_KEY_FILE", "/data/server.key");
-string sni = Env("CHAMELEON_SNI", "www.example-cdn.com");
-string publicAddr = Env("CHAMELEON_PUBLIC", $"{sni}:443");
-string profileName = Env("CHAMELEON_NAME", "Chameleon");
-string? certPfx = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PFX");
-string? certPass = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PASS");
-string? certPem = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PEM");
-string? keyPem = Environment.GetEnvironmentVariable("CHAMELEON_KEY_PEM");
-string? decoy = Environment.GetEnvironmentVariable("CHAMELEON_DECOY");
-bool proxyProtocol = Env("CHAMELEON_PROXY_PROTOCOL", "0") is "1" or "true";
-bool allowlist = Env("CHAMELEON_ALLOWLIST", "0") is "1" or "true";
-string clientsFile = Env("CHAMELEON_CLIENTS_FILE", "/data/clients.json");
-string trafficFile = Env("CHAMELEON_TRAFFIC_FILE", "/data/traffic.json");
-string dbFile = Env("CHAMELEON_DB", "/data/chameleon.db");
+var listen = Env("CHAMELEON_LISTEN", "0.0.0.0:8443");
+var keyFile = Env("CHAMELEON_KEY_FILE", "/data/server.key");
+var sni = Env("CHAMELEON_SNI", "www.example-cdn.com");
+var publicAddr = Env("CHAMELEON_PUBLIC", $"{sni}:443"); // адрес, на который подключается клиент
+var profileName = Env("CHAMELEON_NAME", "Chameleon");
+var certPfx = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PFX");
+var certPass = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PASS");
+var certPem = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PEM");
+var keyPem = Environment.GetEnvironmentVariable("CHAMELEON_KEY_PEM");
+var decoy = Environment.GetEnvironmentVariable("CHAMELEON_DECOY");
+var proxyProtocol = Env("CHAMELEON_PROXY_PROTOCOL", "0") is "1" or "true";
+var allowlist = Env("CHAMELEON_ALLOWLIST", "0") is "1" or "true";
+var clientsFile = Env("CHAMELEON_CLIENTS_FILE", "/data/clients.json");
+var trafficFile = Env("CHAMELEON_TRAFFIC_FILE", "/data/traffic.json");
+var dbFile = Env("CHAMELEON_DB", "/data/chameleon.db");
 
-KeyPair serverStatic = LoadOrCreateKey(keyFile);
+var serverStatic = LoadOrCreateKey(keyFile);
 Console.WriteLine("=== Chameleon server ===");
 Console.WriteLine($"listen : {listen}");
 Console.WriteLine($"sni    : {sni}");
 Console.WriteLine($"decoy  : {decoy ?? "(статическая страница)"}");
 Console.WriteLine($"proxy-protocol: {(proxyProtocol ? "включён (ждём PROXY-заголовок от nginx)" : "выключен")}");
 Console.WriteLine();
-string pubKeyHex = Convert.ToHexString(serverStatic.Public).ToLowerInvariant();
+var pubKeyHex = Convert.ToHexString(serverStatic.Public).ToLowerInvariant();
 Console.WriteLine("СТАТИЧЕСКИЙ ПУБЛИЧНЫЙ КЛЮЧ СЕРВЕРА:");
 Console.WriteLine($"  {pubKeyHex}");
 Console.WriteLine();
@@ -45,9 +45,9 @@ Console.WriteLine("КОНФИГ-ССЫЛКА (скопируйте целико�
 Console.WriteLine($"  {BuildLink(publicAddr, pubKeyHex, sni, profileName)}");
 Console.WriteLine();
 
-using X509Certificate2 cert = LoadCert(certPem, keyPem, certPfx, certPass, sni);
-IPEndPoint endpoint = ParseListen(listen);
-DnsEndPoint? decoyEndpoint = decoy is null ? null : ParseDecoy(decoy);
+using var cert = LoadCert(certPem, keyPem, certPfx, certPass, sni);
+var endpoint = ParseListen(listen);
+var decoyEndpoint = decoy is null ? null : ParseDecoy(decoy);
 
 var store = new SqliteStore(dbFile, enforced: allowlist);
 store.MigrateFromJson(clientsFile, trafficFile);
@@ -67,17 +67,17 @@ await using var server = ChameleonServer.Start(endpoint, serverStatic, TlsCarrie
 
 server.SessionClosed += (sid, key, down, up) => store.AddClosedSession(key, down, up);
 
-int histSampleSec = int.TryParse(Env("CHAMELEON_HISTORY_SAMPLE", "15"), out var hs) ? Math.Max(5, hs) : 15;
+var histSampleSec = int.TryParse(Env("CHAMELEON_HISTORY_SAMPLE", "15"), out var hs) ? Math.Max(5, hs) : 15;
 var historySampler = new HistorySampler(server, store, TimeSpan.FromSeconds(histSampleSec));
 historySampler.Start();
 
-int enforceSec = int.TryParse(Env("CHAMELEON_ENFORCE_INTERVAL", "10"), out var es) ? Math.Max(3, es) : 10;
+var enforceSec = int.TryParse(Env("CHAMELEON_ENFORCE_INTERVAL", "10"), out var es) ? Math.Max(3, es) : 10;
 var enforcement = new EnforcementRunner(server, store,
-    new IEnforcementPolicy[] { new LimitPolicy() }, TimeSpan.FromSeconds(enforceSec));
+    [new LimitPolicy()], TimeSpan.FromSeconds(enforceSec));
 enforcement.Start();
 Console.WriteLine($"enforcement: политик={1}, интервал={enforceSec}с");
 
-int historyDays = int.TryParse(Env("CHAMELEON_HISTORY_DAYS", "90"), out var hd) ? Math.Max(7, hd) : 90;
+var historyDays = int.TryParse(Env("CHAMELEON_HISTORY_DAYS", "90"), out var hd) ? Math.Max(7, hd) : 90;
 store.PurgeHistory(historyDays);
 using var purgeTimer = new Timer(_ =>
     {
@@ -94,12 +94,12 @@ using var purgeTimer = new Timer(_ =>
 Console.WriteLine($"история трафика: хранение {historyDays} дней");
 Console.WriteLine($"сервер запущен на {server.EndPoint}. Ctrl+C для остановки.");
 
-string? apiToken = Environment.GetEnvironmentVariable("CHAMELEON_API_TOKEN");
-string apiListen = Env("CHAMELEON_API_LISTEN", "http://+:9090/");
+var apiToken = Environment.GetEnvironmentVariable("CHAMELEON_API_TOKEN");
+var apiListen = Env("CHAMELEON_API_LISTEN", "http://+:9090/");
 ManagementApi? api = null;
 if (!string.IsNullOrWhiteSpace(apiToken))
 {
-    api = new ManagementApi(apiListen, apiToken, server, events, store, pubKeyHex, sni);
+    api = new ManagementApi(apiListen, apiToken, server, events, store, pubKeyHex, sni, publicAddr);
     api.Start();
     Console.WriteLine($"management API: {apiListen} (Bearer-токен задан)");
 }
@@ -132,12 +132,12 @@ static KeyPair LoadOrCreateKey(string path)
 {
     if (File.Exists(path))
     {
-        byte[] priv = Convert.FromHexString(File.ReadAllText(path).Trim());
+        var priv = Convert.FromHexString(File.ReadAllText(path).Trim());
         return new KeyPair(priv, X25519.ScalarMultBase(priv));
     }
 
-    byte[] fresh = RandomNumberGenerator.GetBytes(X25519.KeySize);
-    string? dir = Path.GetDirectoryName(path);
+    var fresh = RandomNumberGenerator.GetBytes(X25519.KeySize);
+    var dir = Path.GetDirectoryName(path);
     if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
     File.WriteAllText(path, Convert.ToHexString(fresh).ToLowerInvariant());
     Console.WriteLine($"(сгенерирован новый ключ сервера → {path})");
@@ -149,13 +149,11 @@ static X509Certificate2 LoadCert(string? certPem, string? keyPem, string? pfx, s
     if (certPem is { Length: > 0 } && keyPem is { Length: > 0 } && File.Exists(certPem) && File.Exists(keyPem))
     {
         using var fromPem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
-       
         return LoadPfxBytes(fromPem.Export(X509ContentType.Pfx), null);
     }
 
     if (pfx is { Length: > 0 } && File.Exists(pfx))
         return LoadPfxBytes(File.ReadAllBytes(pfx), pass);
-
     return TlsCarrier.CreateSelfSignedCertificate(sni);
 }
 
@@ -164,33 +162,33 @@ static X509Certificate2 LoadPfxBytes(byte[] pfx, string? pass) =>
 
 static IPEndPoint ParseListen(string s)
 {
-    int i = s.LastIndexOf(':');
-    string host = s[..i];
-    int port = int.Parse(s[(i + 1)..]);
-    IPAddress ip = host is "0.0.0.0" or "*" ? IPAddress.Any : IPAddress.Parse(host);
+    var i = s.LastIndexOf(':');
+    var host = s[..i];
+    var port = int.Parse(s[(i + 1)..]);
+    var ip = host is "0.0.0.0" or "*" ? IPAddress.Any : IPAddress.Parse(host);
     return new IPEndPoint(ip, port);
 }
 
 static DnsEndPoint ParseDecoy(string s)
 {
-    int i = s.LastIndexOf(':');
+    var i = s.LastIndexOf(':');
     return new DnsEndPoint(s[..i], int.Parse(s[(i + 1)..]));
 }
 
 static string BuildLink(string publicAddr, string keyHex, string sni, string name)
 {
-    int i = publicAddr.LastIndexOf(':');
-    string host = i > 0 ? publicAddr[..i] : publicAddr;
-    int port = i > 0 && int.TryParse(publicAddr[(i + 1)..], out int p) ? p : 443;
-    return new ChameleonLink(host, port, keyHex, sni,
+    var i = publicAddr.LastIndexOf(':');
+    var host = i > 0 ? publicAddr[..i] : publicAddr;
+    var port = i > 0 && int.TryParse(publicAddr[(i + 1)..], out var p) ? p : 443;
+    return new Chameleon.Core.Proxy.ChameleonLink(host, port, keyHex, sni,
         [], name).Build();
 }
 
 static string Bytes(long b)
 {
-    string[] u = { "B", "KB", "MB", "GB", "TB" };
-    double v = b;
-    int k = 0;
+    string[] u = ["B", "KB", "MB", "GB", "TB"];
+    var v = b;
+    var k = 0;
     while (v >= 1024 && k < u.Length - 1)
     {
         v /= 1024;
