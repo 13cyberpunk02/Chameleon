@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Chameleon.Mobile.ViewModels"
+             x:Class="Chameleon.Mobile.Views.MainView"
+             x:DataType="vm:MainViewModel"
+             Background="#0D1117">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="24,32">
+
+        <!-- Шапка -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+            <TextBlock Text="🦎" FontSize="28" VerticalAlignment="Center" />
+            <TextBlock Text="Chameleon" FontSize="24" FontWeight="Bold" Foreground="#E6EDF3" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <!-- Центр: большая круглая кнопка + статус -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="24">
+            <Button Command="{Binding ToggleCommand}"
+                    Width="190" Height="190" CornerRadius="95"
+                    HorizontalAlignment="Center" Cursor="Hand"
+                    Background="#161B22" BorderBrush="{Binding StatusColor}" BorderThickness="5">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                    <TextBlock Text="⏻" FontSize="56" HorizontalAlignment="Center" Foreground="{Binding StatusColor}" />
+                    <TextBlock Text="{Binding ButtonText}" FontSize="16" HorizontalAlignment="Center"
+                               Foreground="#E6EDF3" />
+                </StackPanel>
+            </Button>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                <Ellipse Width="11" Height="11" VerticalAlignment="Center" Fill="{Binding StatusColor}" />
+                <TextBlock Text="{Binding StatusText}" FontSize="17" FontWeight="SemiBold"
+                           Foreground="{Binding StatusColor}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Низ: ссылка профиля -->
+        <StackPanel Grid.Row="2" Spacing="10">
+            <TextBlock Text="Ссылка подключения" FontSize="13" Foreground="#8B949E" />
+            <TextBox Text="{Binding Link}" PlaceholderText="chameleon://..." Foreground="#E6EDF3"
+                     Background="#161B22" BorderBrush="#30363D"
+                     FontFamily="Consolas,monospace" FontSize="12" TextWrapping="Wrap" MaxHeight="80" />
+            <Button Content="Вставить из буфера" Command="{Binding PasteCommand}" HorizontalAlignment="Stretch" />
+            <TextBlock Text="{Binding Hint}" FontSize="12" Foreground="#8B949E" TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</UserControl>

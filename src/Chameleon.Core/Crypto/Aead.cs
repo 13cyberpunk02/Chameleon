@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 
 namespace Chameleon.Core.Crypto;
 
-/// <summary>
+// <summary>
 /// ChaCha20-Poly1305 с единым API. Если ОС поддерживает нативную реализацию
 /// (Windows 11, Linux/OpenSSL) - используется она, ради скорости. Иначе
 /// (например Windows 10) - переносимая реализация на чистом C# по RFC 8439.
@@ -23,13 +23,13 @@ public sealed class Aead : IDisposable
     {
         if (key.Length != KeySize) throw new ArgumentException("Ключ должен быть 32 байта", nameof(key));
 
-        if (ChaCha20Poly1305.IsSupported)
+        if (ChaCha20Poly1305.IsSupported && !OperatingSystem.IsAndroid())
             _native = new ChaCha20Poly1305(key);
         else
             _key = key.ToArray();
     }
 
-    public static bool UsesNativeImplementation => ChaCha20Poly1305.IsSupported;
+    public static bool UsesNativeImplementation => ChaCha20Poly1305.IsSupported && !OperatingSystem.IsAndroid();
 
     public void Encrypt(ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> plaintext,
         Span<byte> ciphertext, Span<byte> tag, ReadOnlySpan<byte> associatedData = default)
@@ -97,12 +97,12 @@ internal static class ManagedChaCha20Poly1305
 
     private static uint[] InitState(byte[] key, uint counter, ReadOnlySpan<byte> nonce)
     {
-        uint[] s = new uint[16];
+        var s = new uint[16];
         s[0] = 0x61707865;
         s[1] = 0x3320646e;
         s[2] = 0x79622d32;
         s[3] = 0x6b206574;
-        for (int i = 0; i < 8; i++) s[4 + i] = BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(i * 4));
+        for (var i = 0; i < 8; i++) s[4 + i] = BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(i * 4));
         s[12] = counter;
         s[13] = BinaryPrimitives.ReadUInt32LittleEndian(nonce[..4]);
         s[14] = BinaryPrimitives.ReadUInt32LittleEndian(nonce.Slice(4, 4));
@@ -113,15 +113,15 @@ internal static class ManagedChaCha20Poly1305
     private static void ChaCha20Xor(byte[] key, uint counter, ReadOnlySpan<byte> nonce,
         ReadOnlySpan<byte> input, Span<byte> output)
     {
-        uint[] state = InitState(key, counter, nonce);
+        var state = InitState(key, counter, nonce);
         Span<byte> keystream = stackalloc byte[64];
 
-        int offset = 0;
+        var offset = 0;
         while (offset < input.Length)
         {
             ChaChaBlock(state, keystream);
-            int n = Math.Min(64, input.Length - offset);
-            for (int i = 0; i < n; i++)
+            var n = Math.Min(64, input.Length - offset);
+            for (var i = 0; i < n; i++)
                 output[offset + i] = (byte)(input[offset + i] ^ keystream[i]);
             state[12]++;
             offset += n;
@@ -133,7 +133,7 @@ internal static class ManagedChaCha20Poly1305
         Span<uint> w = stackalloc uint[16];
         state.CopyTo(w);
 
-        for (int i = 0; i < 10; i++)
+        for (var i = 0; i < 10; i++)
         {
             QuarterRound(w, 0, 4, 8, 12);
             QuarterRound(w, 1, 5, 9, 13);
@@ -145,7 +145,7 @@ internal static class ManagedChaCha20Poly1305
             QuarterRound(w, 3, 4, 9, 14);
         }
 
-        for (int i = 0; i < 16; i++)
+        for (var i = 0; i < 16; i++)
             BinaryPrimitives.WriteUInt32LittleEndian(output.Slice(i * 4, 4), w[i] + state[i]);
     }
 
@@ -177,16 +177,15 @@ internal static class ManagedChaCha20Poly1305
     private static void Poly1305Mac(ReadOnlySpan<byte> aad, ReadOnlySpan<byte> ciphertext,
         ReadOnlySpan<byte> otk, Span<byte> tag)
     {
-        BigInteger r = LittleEndian(otk[..16]) & Clamp;
-        BigInteger s = LittleEndian(otk.Slice(16, 16));
+        var r = LittleEndian(otk[..16]) & Clamp;
+        var s = LittleEndian(otk.Slice(16, 16));
 
-        // mac_data = aad ‖ pad16 ‖ ciphertext ‖ pad16 ‖ le64(aad_len) ‖ le64(ct_len).
-        int aadPad = (16 - aad.Length % 16) % 16;
-        int ctPad = (16 - ciphertext.Length % 16) % 16;
-        int total = aad.Length + aadPad + ciphertext.Length + ctPad + 16;
-        byte[] macData = new byte[total];
+        var aadPad = (16 - aad.Length % 16) % 16;
+        var ctPad = (16 - ciphertext.Length % 16) % 16;
+        var total = aad.Length + aadPad + ciphertext.Length + ctPad + 16;
+        var macData = new byte[total];
 
-        int offset = 0;
+        var offset = 0;
         aad.CopyTo(macData.AsSpan(offset));
         offset += aad.Length + aadPad;
         ciphertext.CopyTo(macData.AsSpan(offset));
@@ -194,10 +193,9 @@ internal static class ManagedChaCha20Poly1305
         BinaryPrimitives.WriteUInt64LittleEndian(macData.AsSpan(offset, 8), (ulong)aad.Length);
         BinaryPrimitives.WriteUInt64LittleEndian(macData.AsSpan(offset + 8, 8), (ulong)ciphertext.Length);
 
-        // Длина mac_data всегда кратна 16, поэтому каждый блок полный -> добавляем 2^128.
         BigInteger acc = 0;
         Span<byte> block = stackalloc byte[17];
-        for (int i = 0; i < total; i += 16)
+        for (var i = 0; i < total; i += 16)
         {
             macData.AsSpan(i, 16).CopyTo(block);
             block[16] = 1;

@@ -16,7 +16,7 @@ sealed class Program
                 $"=== {where} ===\n{ex}\n\n");
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Dump("AppDomain", e.ExceptionObject);
-        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) => Dump("Task", e.Exception);
+        TaskScheduler.UnobservedTaskException += (_, e) => Dump("Task", e.Exception);
 
         try
         {

@@ -14,7 +14,7 @@ public sealed partial class ConnectViewModel : PageViewModel
 
     private readonly TunnelService _tunnel = Services.Tunnel;
     private readonly ProfileStore _store = Services.Store;
-    private Timer? _statusTimer;
+    private System.Threading.Timer? _statusTimer;
     private DateTime _connectedAt;
 
     public ConnectViewModel()
@@ -28,7 +28,7 @@ public sealed partial class ConnectViewModel : PageViewModel
     [ObservableProperty] private string _statusText = "Отключено";
     [ObservableProperty] private IBrush _statusColor = Brush.Parse("#8B949E");
     [ObservableProperty] private string _buttonText = "Подключить";
-
+    
     [ObservableProperty] private string _publicIp = "-";
     [ObservableProperty] private string _rtt = "-";
     [ObservableProperty] private string _trafficUp = "-";
@@ -71,7 +71,9 @@ public sealed partial class ConnectViewModel : PageViewModel
                     : _store.Tun2SocksPath,
                 Tun2SocksLogLevel = string.IsNullOrWhiteSpace(_store.LogLevel) ? "error" : _store.LogLevel,
                 BypassRules = _store.BypassRules,
-                ClientPrivateKeyHex = _store.ClientPrivateKeyHex,
+                ClientPrivateKeyHex = string.IsNullOrWhiteSpace(profile.ClientPrivateKeyHex)
+                    ? _store.ClientPrivateKeyHex
+                    : profile.ClientPrivateKeyHex,
             };
             ActiveProfile = profile.Display;
             await _tunnel.ConnectAsync(options);
@@ -100,14 +102,21 @@ public sealed partial class ConnectViewModel : PageViewModel
         StatusColor = Brush.Parse(color);
         ToggleCommand.NotifyCanExecuteChanged();
 
-        if (s == TunnelStatus.Connected) StartStats();
-        else if (s is TunnelStatus.Disconnected or TunnelStatus.Error) StopStats();
+        switch (s)
+        {
+            case TunnelStatus.Connected:
+                StartStats();
+                break;
+            case TunnelStatus.Disconnected or TunnelStatus.Error:
+                StopStats();
+                break;
+        }
     }
 
     private void StartStats()
     {
         _connectedAt = DateTime.Now;
-        _statusTimer ??= new Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStats), null,
+        _statusTimer ??= new System.Threading.Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStats), null,
             0, 1000);
         _ = RefreshIpAsync();
     }
@@ -137,11 +146,11 @@ public sealed partial class ConnectViewModel : PageViewModel
     {
         try
         {
-            string socks = string.IsNullOrWhiteSpace(_store.Socks) ? "127.0.0.1:1080" : _store.Socks;
+            var socks = string.IsNullOrWhiteSpace(_store.Socks) ? "127.0.0.1:1080" : _store.Socks;
             using var handler = new HttpClientHandler
                 { Proxy = new System.Net.WebProxy($"socks5://{socks}"), UseProxy = true };
             using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
-            string ip = (await http.GetStringAsync("https://api.ipify.org")).Trim();
+            var ip = (await http.GetStringAsync("https://api.ipify.org")).Trim();
             Avalonia.Threading.Dispatcher.UIThread.Post(() => PublicIp = ip);
         }
         catch
@@ -154,7 +163,7 @@ public sealed partial class ConnectViewModel : PageViewModel
     {
         string[] u = ["B", "KB", "MB", "GB", "TB"];
         double v = bytes;
-        int k = 0;
+        var k = 0;
         while (v >= 1024 && k < u.Length - 1)
         {
             v /= 1024;
