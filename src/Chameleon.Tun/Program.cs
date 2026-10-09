@@ -11,6 +11,8 @@ using Chameleon.Tunnel;
 var positional = new List<string>();
 string? tun2socks = Environment.GetEnvironmentVariable("CHAMELEON_TUN2SOCKS");
 string? logLevel = Environment.GetEnvironmentVariable("CHAMELEON_TUN2SOCKS_LOG");
+string?
+    extra = Environment.GetEnvironmentVariable("CHAMELEON_EXTRA");
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -60,6 +62,7 @@ var options = new TunnelOptions
         ? tun2socks
         : (OperatingSystem.IsWindows() ? "tun2socks.exe" : "tun2socks"),
     Tun2SocksLogLevel = logLevel is { Length: > 0 } ? logLevel : "error",
+    ExtraCarriers = extra,
 };
 
 var service = new TunnelService();

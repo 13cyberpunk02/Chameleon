@@ -14,7 +14,7 @@ public sealed partial class ConnectViewModel : PageViewModel
 
     private readonly TunnelService _tunnel = Services.Tunnel;
     private readonly ProfileStore _store = Services.Store;
-    private System.Threading.Timer? _statusTimer;
+    private Timer? _statusTimer;
     private DateTime _connectedAt;
 
     public ConnectViewModel()
@@ -28,7 +28,8 @@ public sealed partial class ConnectViewModel : PageViewModel
     [ObservableProperty] private string _statusText = "Отключено";
     [ObservableProperty] private IBrush _statusColor = Brush.Parse("#8B949E");
     [ObservableProperty] private string _buttonText = "Подключить";
-    
+
+    // Статистика
     [ObservableProperty] private string _publicIp = "-";
     [ObservableProperty] private string _rtt = "-";
     [ObservableProperty] private string _trafficUp = "-";
@@ -74,6 +75,7 @@ public sealed partial class ConnectViewModel : PageViewModel
                 ClientPrivateKeyHex = string.IsNullOrWhiteSpace(profile.ClientPrivateKeyHex)
                     ? _store.ClientPrivateKeyHex
                     : profile.ClientPrivateKeyHex,
+                ExtraCarriers = profile.ExtraCarriers,
             };
             ActiveProfile = profile.Display;
             await _tunnel.ConnectAsync(options);
@@ -102,15 +104,8 @@ public sealed partial class ConnectViewModel : PageViewModel
         StatusColor = Brush.Parse(color);
         ToggleCommand.NotifyCanExecuteChanged();
 
-        switch (s)
-        {
-            case TunnelStatus.Connected:
-                StartStats();
-                break;
-            case TunnelStatus.Disconnected or TunnelStatus.Error:
-                StopStats();
-                break;
-        }
+        if (s == TunnelStatus.Connected) StartStats();
+        else if (s is TunnelStatus.Disconnected or TunnelStatus.Error) StopStats();
     }
 
     private void StartStats()
@@ -163,7 +158,7 @@ public sealed partial class ConnectViewModel : PageViewModel
     {
         string[] u = ["B", "KB", "MB", "GB", "TB"];
         double v = bytes;
-        var k = 0;
+        int k = 0;
         while (v >= 1024 && k < u.Length - 1)
         {
             v /= 1024;

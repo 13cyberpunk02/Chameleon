@@ -10,11 +10,13 @@ namespace Chameleon.Gui;
 /// <summary>Один профиль сервера.</summary>
 public sealed class ServerProfile
 {
-    public string Name { get; set; } = "";
-    public string Server { get; set; } = "";
-    public string ServerPublicKeyHex { get; set; } = "";
+    public string Name { get; set; } = string.Empty;
+    public string Server { get; set; } = string.Empty;
+    public string ServerPublicKeyHex { get; set; } = string.Empty;
     public string Sni { get; set; } = "www.example-cdn.com";
-    public string ClientPrivateKeyHex { get; set; } = "";
+    public string ClientPrivateKeyHex { get; set; } = string.Empty; 
+
+    public string ExtraCarriers { get; set; } = string.Empty;
 
     public string Display => string.IsNullOrWhiteSpace(Name) ? Server : Name;
 
@@ -24,17 +26,20 @@ public sealed class ServerProfile
         Server = $"{link.Host}:{link.Port}",
         ServerPublicKeyHex = link.ServerPublicKeyHex,
         Sni = link.Sni,
-        ClientPrivateKeyHex = link.ClientPrivateKeyHex ?? "",
+        ClientPrivateKeyHex = link.ClientPrivateKeyHex ?? string.Empty,
+        ExtraCarriers = string.Join(",", link.ExtraCarriers),
     };
 
     public string ToLink()
     {
         var i = Server.LastIndexOf(':');
         var host = i > 0 ? Server[..i] : Server;
-        var port = i > 0 && int.TryParse(Server[(i + 1)..], out var p) ? p : 443;
+        var port = i > 0 && int.TryParse(Server[(i + 1)..], out int p) ? p : 443;
+        var extras =
+            ExtraCarriers.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return new ChameleonLink(host, port, ServerPublicKeyHex,
             string.IsNullOrWhiteSpace(Sni) ? host : Sni,
-            [], string.IsNullOrWhiteSpace(Name) ? null : Name).Build();
+            extras, string.IsNullOrWhiteSpace(Name) ? null : Name).Build();
     }
 }
 
@@ -42,14 +47,13 @@ public sealed class ServerProfile
 public sealed class ProfileStore
 {
     public List<ServerProfile> Profiles { get; set; } = [];
-    public int SelectedIndex { get; set; } = 0;
-    
+    public int SelectedIndex { get; set; }
     public string Socks { get; set; } = "127.0.0.1:1080";
     public string Tun2SocksPath { get; set; } = "";
     public string LogLevel { get; set; } = "error";
-    public bool AutoConnect { get; set; } = false;
+    public bool AutoConnect { get; set; }
     public List<BypassRule> BypassRules { get; set; } = [];
-    public string ClientPrivateKeyHex { get; set; } = "";
+    public string ClientPrivateKeyHex { get; set; } = string.Empty;
 
     /// <summary>Публичный ключ клиента (идентичность для allowlist сервера).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
