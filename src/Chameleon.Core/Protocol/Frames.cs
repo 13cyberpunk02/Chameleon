@@ -11,6 +11,7 @@ public enum FrameType : byte
     StreamReset = 0x06,
     MaxData = 0x07,
     Close = 0x08,
+    FecRepair = 0x09,
 }
 
 public enum StreamKind : byte
@@ -58,3 +59,20 @@ public sealed record StreamResetFrame(ulong StreamId, ulong ErrorCode) : Frame(F
 public sealed record MaxDataFrame(ulong StreamId, ulong MaxOffset) : Frame(FrameType.MaxData);
 
 public sealed record CloseFrame(ulong ErrorCode, string Reason) : Frame(FrameType.Close);
+
+/// <summary>Член FEC-блока: номер пакета-данных и его Недополненная длина (байты до pad-шейпера).</summary>
+public readonly record struct FecMember(ulong PacketNumber, int Length);
+
+/// <summary>
+/// Repair-шард FEC (Reed-Solomon). Несёт одну из m parity-долей блока из k пакетов-данных.
+/// Members перечисляет k пакетов блока (их номера и реальные длины), чтобы приёмник собрал
+/// их шарды из уже полученных пакетов и восстановил недостающие. Сам repair-пакет ненадёжный
+/// (не ретрансмитится) - это чистое ускорение поверх ACK/ретрансмитов.
+/// </summary>
+public sealed record FecRepairFrame(
+    ulong BlockId,
+    int ParityCount,
+    int ShardIndex,
+    int ShardSize,
+    IReadOnlyList<FecMember> Members,
+    ReadOnlyMemory<byte> Parity) : Frame(FrameType.FecRepair);

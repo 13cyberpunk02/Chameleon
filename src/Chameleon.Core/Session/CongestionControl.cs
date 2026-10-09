@@ -4,8 +4,8 @@
 /// Контроль перегрузки на уровне сессии: ограничивает число «пакетов в полёте»
 /// адаптивным окном (cwnd) и вычисляет адаптивный RTO по измеренному RTT.
 ///
-/// Зачем: без окна отправитель льёт данные без оглядки -> очередь на канале растёт
-/// -> фиксированный RTO срабатывает на ещё живые пакеты -> лавина ложных
+/// Зачем: без окна отправитель льёт данные без оглядки → очередь на канале растёт
+/// → фиксированный RTO срабатывает на ещё живые пакеты → лавина ложных
 /// ретрансмитов (пожирает CPU, режет полезную скорость, раздувает память).
 ///
 /// Окно - AIMD, как в TCP Reno: медленный старт (×2 за RTT) до ssthresh, затем
@@ -24,6 +24,7 @@ public sealed class CongestionControl
 
     private double _srtt = -1;
     private double _rttVar;
+    private bool _policing;
 
     public int MinCwnd { get; init; } = 4;
     public int MaxCwnd { get; init; } = 4096;
@@ -52,6 +53,24 @@ public sealed class CongestionControl
     }
 
     public long InFlight => Interlocked.Read(ref _inFlight);
+
+    /// <summary>
+    /// Режим «полисинг»: потери вызваны искусственным троттлингом (token bucket),
+    /// а не переполнением очереди. В этом режиме мультипликативный сброс окна бесполезен
+    /// (он лишь режет скорость там, где потолок искусственный), поэтому реакция мягкая.
+    /// Выставляется детектором (<see cref="Congestion.PolicingDetector"/>) из сессии.
+    /// </summary>
+    public bool PolicingMode
+    {
+        get
+        {
+            lock (_lock) return _policing;
+        }
+        set
+        {
+            lock (_lock) _policing = value;
+        }
+    }
 
     /// <summary>Ждёт, пока в окне освободится место под новый пакет, затем занимает слот.</summary>
     public async ValueTask AcquireAsync(CancellationToken cancellationToken)
@@ -88,13 +107,24 @@ public sealed class CongestionControl
         _signal.Release();
     }
 
-    /// <summary>Потеря (сработал RTO): мультипликативное уменьшение окна.</summary>
+    /// <summary>
+    /// Потеря (сработал RTO). При обычной перегрузке - мультипликативное уменьшение окна
+    /// (AIMD, cwnd/2). В режиме полисинга - лишь лёгкое поджатие (×0.9): резать скорость
+    /// под искусственным потолком бессмысленно, лучше держать окно и/или уйти на другую несущую.
+    /// </summary>
     public void OnLoss()
     {
         lock (_lock)
         {
-            _ssthresh = Math.Max(MinCwnd, _cwnd / 2);
-            _cwnd = _ssthresh;
+            if (_policing)
+            {
+                _cwnd = Math.Max(MinCwnd, _cwnd * 0.9);
+            }
+            else
+            {
+                _ssthresh = Math.Max(MinCwnd, _cwnd / 2);
+                _cwnd = _ssthresh;
+            }
         }
 
         _signal.Release();

@@ -11,6 +11,7 @@ namespace Chameleon.Core.Protocol;
 public static class PacketReader
 {
     private const int MaxAckRanges = 256;
+    private const int MaxFecMembers = 64;
 
     /// <returns>Номер пакета. Фреймы добавляются в <paramref name="frames"/>.</returns>
     public static ulong Parse(ReadOnlyMemory<byte> packet, List<Frame> frames)
@@ -98,6 +99,31 @@ public static class PacketReader
                     int length = CheckedLength(rawLength, span.Length - pos);
                     frames.Add(new CloseFrame(code, Encoding.UTF8.GetString(span.Slice(pos, length))));
                     pos += length;
+                    break;
+                }
+
+                case FrameType.FecRepair:
+                {
+                    ulong blockId = ReadVarInt(span, ref pos);
+                    int parityCount = (int)ReadVarInt(span, ref pos);
+                    int shardIndex = (int)ReadVarInt(span, ref pos);
+                    int shardSize = CheckedLength(ReadVarInt(span, ref pos), span.Length - pos);
+                    ulong memberCount = ReadVarInt(span, ref pos);
+                    if (memberCount > MaxFecMembers) throw Error("Слишком много членов FEC-блока");
+
+                    var members = new FecMember[(int)memberCount];
+                    for (int i = 0; i < members.Length; i++)
+                    {
+                        ulong mpn = ReadVarInt(span, ref pos);
+                        int mlen = (int)ReadVarInt(span, ref pos);
+                        members[i] = new FecMember(mpn, mlen);
+                    }
+
+                    int plen = CheckedLength((ulong)shardSize, span.Length - pos);
+                    var parity = packet.Slice(pos, plen);
+                    pos += plen;
+
+                    frames.Add(new FecRepairFrame(blockId, parityCount, shardIndex, shardSize, members, parity));
                     break;
                 }
 

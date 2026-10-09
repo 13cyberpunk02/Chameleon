@@ -124,6 +124,25 @@ public ref struct PacketWriter
         _position += Encoding.UTF8.GetBytes(reason, _buffer[_position..]);
     }
 
+    /// <summary>Пишет FEC repair-шард: метаданные блока + parity-байты.</summary>
+    public void WriteFecRepair(ulong blockId, int parityCount, int shardIndex, int shardSize,
+        scoped ReadOnlySpan<FecMember> members, scoped ReadOnlySpan<byte> parity)
+    {
+        WriteByte((byte)FrameType.FecRepair);
+        WriteVarInt(blockId);
+        WriteVarInt((ulong)parityCount);
+        WriteVarInt((ulong)shardIndex);
+        WriteVarInt((ulong)shardSize);
+        WriteVarInt((ulong)members.Length);
+        foreach (var mbr in members)
+        {
+            WriteVarInt(mbr.PacketNumber);
+            WriteVarInt((ulong)mbr.Length);
+        }
+
+        WriteBytes(parity[..shardSize]);
+    }
+
     /// <summary>Добивает пакет нулями (фреймы PADDING) до нужного размера. Главный инструмент шейпера.</summary>
     public void PadTo(int totalLength)
     {

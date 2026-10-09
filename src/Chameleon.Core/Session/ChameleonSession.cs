@@ -1,9 +1,18 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using Chameleon.Core.Congestion;
+using Chameleon.Core.Fec;
 using Chameleon.Core.Protocol;
 using Chameleon.Core.Transport;
 
 namespace Chameleon.Core.Session;
+
+/// <summary>Параметры FEC для сессии (Reed-Solomon: k данных + m parity на блок).</summary>
+public sealed record FecOptions(int DataShards = 8, int ParityShards = 2, bool Enabled = true)
+{
+    public static readonly FecOptions Default = new();
+    public static readonly FecOptions Off = new(8, 2, Enabled: false);
+}
 
 /// <summary>
 /// Логическая сессия поверх ОДНОЙ ИЛИ НЕСКОЛЬКИХ несущих. Мультиплексирует потоки,
@@ -48,6 +57,14 @@ public sealed class ChameleonSession : IAsyncDisposable
     private int _ackPending;
     private Carrier? _ackVia;
     private Task? _ackLoop;
+    
+    private const int FecReserve = 160;
+    private readonly FecEncoder? _fec;
+    private readonly FecDecoder? _fecDec;
+    private readonly PolicingDetector _detector = new();
+    private Task? _policingLoop;
+    private long _deliveredBytesInterval;
+    private long _lossCountInterval;
     private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>Завершается, когда все несущие сессии закрылись (клиент отключился).</summary>
@@ -57,13 +74,20 @@ public sealed class ChameleonSession : IAsyncDisposable
     private Task? _coverLoop;
     private Task? _rtoLoop;
 
-    private ChameleonSession(ICarrierChannel first, bool isClient, TrafficShaper shaper)
+    private ChameleonSession(ICarrierChannel first, bool isClient, TrafficShaper shaper, FecOptions fec)
     {
         _isClient = isClient;
         _shaper = shaper;
         _nextStreamId = isClient ? 1 : 2;
         _lastSendTicks = Environment.TickCount64;
         int cap = Crypto.RecordFormat.MaxPlaintext - 64;
+        if (fec.Enabled)
+        {
+            _fec = new FecEncoder(fec.DataShards, fec.ParityShards);
+            _fecDec = new FecDecoder();
+            cap = Math.Min(cap, Crypto.RecordFormat.MaxPlaintext - FecReserve);
+        }
+
         _maxStreamChunk = shaper.Enabled ? Math.Min(cap, shaper.LargestSize - 64) : cap;
         _carriers.Add(new Carrier(first));
     }
@@ -75,14 +99,16 @@ public sealed class ChameleonSession : IAsyncDisposable
     public long BytesReceived => Interlocked.Read(ref _bytesReceived);
     public int RttMs => _cc.SmoothedRttMs;
 
-    public static ChameleonSession Start(ICarrierChannel channel, bool isClient, TrafficShaper? shaper = null)
+    public static ChameleonSession Start(ICarrierChannel channel, bool isClient,
+        TrafficShaper? shaper = null, FecOptions? fec = null)
     {
-        var s = new ChameleonSession(channel, isClient, shaper ?? TrafficShaper.Off);
+        var s = new ChameleonSession(channel, isClient, shaper ?? TrafficShaper.Off, fec ?? FecOptions.Default);
         s.StartCarrierLoop(s._carriers[0]);
         if (s._shaper.CoverActive)
             s._coverLoop = Task.Run(() => s.CoverLoopAsync(s._cts.Token));
         s._rtoLoop = Task.Run(() => s.RetransmitLoopAsync(s._cts.Token));
         s._ackLoop = Task.Run(() => s.AckLoopAsync(s._cts.Token));
+        s._policingLoop = Task.Run(() => s.PolicingLoopAsync(s._cts.Token));
         return s;
     }
 
@@ -95,8 +121,8 @@ public sealed class ChameleonSession : IAsyncDisposable
     }
 
     private void StartCarrierLoop(Carrier c) => c.Loop = Task.Run(() => ReceiveLoopAsync(c, _cts.Token));
-    
 
+    
     public async ValueTask<ChameleonStream> OpenStreamAsync(
         string host, int port, StreamKind kind = StreamKind.Tcp, CancellationToken cancellationToken = default)
     {
@@ -139,16 +165,22 @@ public sealed class ChameleonSession : IAsyncDisposable
         byte[] scratch = ArrayPool<byte>.Shared.Rent(Crypto.RecordFormat.MaxPlaintext);
         try
         {
-            int length = build(scratch);
-            length = Pad(scratch, length);
-            
+            int rawLen = build(scratch);
+            int length = Pad(scratch, rawLen);
+    
             VarInt.TryRead(scratch, out ulong pn, out _);
-            byte[] plaintext = scratch[..length].ToArray();
+            byte[] plaintext = [.. scratch[..length]];
             
             await _cc.AcquireAsync(cancellationToken).ConfigureAwait(false);
             _unacked[pn] = new InFlight(plaintext, length, Environment.TickCount64, Retransmitted: false);
 
             await SendOnAnyAsync(plaintext, length, cancellationToken).ConfigureAwait(false);
+            
+            if (_fec is not null)
+            {
+                var repairs = _fec.Add(pn, plaintext.AsSpan(0, rawLen), rawLen);
+                if (repairs is not null) await SendRepairsAsync(repairs, cancellationToken).ConfigureAwait(false);
+            }
         }
         finally
         {
@@ -179,6 +211,34 @@ public sealed class ChameleonSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Шлёт repair-шарды блока. Только при мультипути: на одной надёжной несущей
+    /// потерь нет, parity был бы чистым оверхедом. Repair-пакеты ненадёжны (не ретрансмитятся).</summary>
+    private async ValueTask SendRepairsAsync(FecEncoder.Repair[] repairs, CancellationToken cancellationToken)
+    {
+        if (_carriers.Count(c => c.Alive) < 2) return;
+        foreach (var r in repairs)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(Crypto.RecordFormat.MaxPlaintext);
+            try
+            {
+                int length = BuildRepair(buffer, NextPacketNumber(), r);
+                length = Pad(buffer, length);
+                await SendOnAnyAsync(buffer[..length].ToArray(), length, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+    }
+
+    private static int BuildRepair(Span<byte> b, ulong pn, FecEncoder.Repair r)
+    {
+        var w = new PacketWriter(b, pn);
+        w.WriteFecRepair(r.BlockId, r.ParityCount, r.ShardIndex, r.ShardSize, r.Members, r.Parity);
+        return w.Length;
+    }
+
     private int Pad(byte[] buffer, int length)
     {
         if (!_shaper.Enabled) return length;
@@ -191,7 +251,6 @@ public sealed class ChameleonSession : IAsyncDisposable
 
         return length;
     }
-    
 
     private async Task RetransmitLoopAsync(CancellationToken cancellationToken)
     {
@@ -203,15 +262,21 @@ public sealed class ChameleonSession : IAsyncDisposable
                 long now = Environment.TickCount64;
                 int rto = _cc.RtoMs;
                 bool loss = false;
+                int retransmits = 0;
                 foreach (var (pn, f) in _unacked)
                 {
                     if (now - f.SentTicks < rto) continue;
                     loss = true;
+                    retransmits++;
                     _unacked[pn] = f with { SentTicks = now, Retransmitted = true };
                     await SendOnAnyAsync(f.Plaintext, f.Length, cancellationToken).ConfigureAwait(false);
                 }
 
-                if (loss) _cc.OnLoss();
+                if (loss)
+                {
+                    _cc.OnLoss();
+                    Interlocked.Add(ref _lossCountInterval, retransmits);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -244,12 +309,42 @@ public sealed class ChameleonSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Раз в интервал собирает сэмпл (RTT/доставка/потери) и переключает режим
+    /// CongestionControl: при «полисинге» не режем скорость вдвое (искусственный потолок).</summary>
+    private async Task PolicingLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+                long delivered = Interlocked.Exchange(ref _deliveredBytesInterval, 0);
+                long losses = Interlocked.Exchange(ref _lossCountInterval, 0);
+                _detector.AddSample(Environment.TickCount64, _cc.SmoothedRttMs, delivered,
+                    (int)Math.Min(int.MaxValue, losses));
+
+                var v = _detector.Analyze();
+                _cc.PolicingMode = v is { Cause: LossCause.Policing, Confidence: >= 0.5 };
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception)
+        {
+            // ignored
+        }
+    }
+
     private void ProcessAck(AckFrame ack)
     {
         long now = Environment.TickCount64;
         foreach (ulong pn in AckedPacketNumbers(ack))
             if (_unacked.TryRemove(pn, out var f))
+            {
+                Interlocked.Add(ref _deliveredBytesInterval, f.Length);
                 _cc.OnAck((int)(now - f.SentTicks), f.Retransmitted);
+            }
     }
 
     private static IEnumerable<ulong> AckedPacketNumbers(AckFrame ack)
@@ -268,7 +363,7 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     private async ValueTask SendAckAsync(Carrier via, CancellationToken cancellationToken)
     {
-        (ulong largest, ulong firstRange, List<AckRange> ranges) = BuildAckRanges();
+        (ulong largest, ulong firstRange, var ranges) = BuildAckRanges();
         byte[] buffer = ArrayPool<byte>.Shared.Rent(512);
         try
         {
@@ -333,11 +428,9 @@ public sealed class ChameleonSession : IAsyncDisposable
         }
     }
 
-
     private async Task ReceiveLoopAsync(Carrier carrier, CancellationToken cancellationToken)
     {
         byte[] buffer = new byte[Crypto.RecordFormat.MaxPlaintext];
-        var frames = new List<Frame>();
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -345,36 +438,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                 int n = await carrier.Channel.ReadRecordAsync(buffer, cancellationToken).ConfigureAwait(false);
                 if (n < 0) break;
                 Interlocked.Add(ref _bytesReceived, n);
-
-                frames.Clear();
-                ulong pn = PacketReader.Parse(buffer.AsMemory(0, n), frames);
-
-                bool reliable = false, isNew;
-                lock (_receivedLock)
-                {
-                    isNew = _received.Add(pn);
-                    if (_received.Count > MaxTrackedReceived) _received.Remove(_received.Min);
-                }
-
-                if (isNew)
-                {
-                    foreach (var frame in frames)
-                    {
-                        reliable |= frame is StreamOpenFrame or StreamFrame or StreamFinFrame or StreamResetFrame;
-                        await DispatchAsync(frame, cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                else
-                {
-                    reliable =
-                        frames.Any(f => f is StreamOpenFrame or StreamFrame or StreamFinFrame or StreamResetFrame);
-                }
-
-                if (reliable)
-                {
-                    _ackVia = carrier;
-                    Interlocked.Exchange(ref _ackPending, 1);
-                }
+                await HandleIncomingAsync(buffer.AsMemory(0, n), carrier, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -387,7 +451,65 @@ public sealed class ChameleonSession : IAsyncDisposable
         finally
         {
             carrier.Alive = false;
-            if (_carriers.All(c => !c.Alive)) _completed.TrySetResult();
+            if (_carriers.All(c => !c.Alive)) _completed.TrySetResult(); // все несущие мертвы → сессия окончена
+        }
+    }
+
+    /// <summary>
+    /// Обрабатывает один расшифрованный пакет (из несущей или восстановленный FEC):
+    /// дедуп по номеру, разбор, диспатч фреймов, планирование ACK. FEC-repair фреймы
+    /// пытаются восстановить потерянные пакеты блока - восстановленные прогоняются
+    /// через этот же метод (дедуп не даст обработать дважды, если пакет позже доедет).
+    /// </summary>
+    private async ValueTask HandleIncomingAsync(ReadOnlyMemory<byte> record, Carrier? via,
+        CancellationToken cancellationToken)
+    {
+        var frames = new List<Frame>();
+        ulong pn;
+        try
+        {
+            pn = PacketReader.Parse(record, frames);
+        }
+        catch (ChameleonProtocolException)
+        {
+            return;
+        }
+
+        if (_fecDec is not null && CarrierCount > 1) _fecDec.Remember(pn, record.Span);
+
+        bool reliable = false, isNew;
+        lock (_receivedLock)
+        {
+            isNew = _received.Add(pn);
+            if (_received.Count > MaxTrackedReceived) _received.Remove(_received.Min);
+        }
+
+        if (isNew)
+        {
+            foreach (var frame in frames)
+            {
+                reliable |= frame is StreamOpenFrame or StreamFrame or StreamFinFrame or StreamResetFrame;
+                if (frame is FecRepairFrame repair)
+                {
+                    if (_fecDec is not null)
+                        foreach (var recovered in _fecDec.OnRepair(repair))
+                            await HandleIncomingAsync(recovered, via, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await DispatchAsync(frame, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        else
+        {
+            reliable = frames.Any(f => f is StreamOpenFrame or StreamFrame or StreamFinFrame or StreamResetFrame);
+        }
+
+        if (reliable && via is not null)
+        {
+            _ackVia = via;
+            Interlocked.Exchange(ref _ackPending, 1);
         }
     }
 
@@ -506,7 +628,7 @@ public sealed class ChameleonSession : IAsyncDisposable
             }
         }
 
-        foreach (var t in new[] { _coverLoop, _rtoLoop, _ackLoop }.Concat(_carriers.Select(c => c.Loop)))
+        foreach (var t in new[] { _coverLoop, _rtoLoop, _ackLoop, _policingLoop }.Concat(_carriers.Select(c => c.Loop)))
             if (t is not null)
             {
                 try
