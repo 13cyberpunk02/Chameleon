@@ -1,0 +1,187 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Chameleon.Mobile.ViewModels"
+             xmlns:m="using:Chameleon.Mobile"
+             x:Class="Chameleon.Mobile.Views.ServersPage"
+             x:DataType="vm:ServersPageViewModel">
+    <UserControl.Resources>
+        <StreamGeometry x:Key="IconPlus">M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z</StreamGeometry>
+        <StreamGeometry x:Key="IconPaste">M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z</StreamGeometry>
+        <StreamGeometry x:Key="IconCheck">M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z</StreamGeometry>
+        <StreamGeometry x:Key="IconTrash">M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z</StreamGeometry>
+        <StreamGeometry x:Key="IconServer">M4 1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zm0 13h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zM7 4.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm0 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2z</StreamGeometry>
+        <StreamGeometry x:Key="IconEdit">M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z</StreamGeometry>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock.lbl">
+            <Setter Property="Foreground" Value="#8B949E" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Margin" Value="2,0,0,4" />
+        </Style>
+        <Style Selector="TextBox.fld">
+            <Setter Property="Foreground" Value="#E6EDF3" />
+            <Setter Property="Background" Value="#0D1117" />
+            <Setter Property="BorderBrush" Value="#30363D" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="10,9" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="Border.active">
+            <Setter Property="BorderBrush" Value="#3FB950" />
+            <Setter Property="Background" Value="#10261A" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="20,40,20,14">
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
+            <PathIcon Data="{StaticResource IconServer}" Width="22" Height="22" Foreground="#58A6FF"
+                      VerticalAlignment="Center" />
+            <TextBlock Text="Серверы" FontSize="24" FontWeight="Bold" Foreground="#E6EDF3" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <Button Grid.Row="1" Click="OnPasteClick" HorizontalAlignment="Left" Margin="0,18,0,0"
+                Background="#161B22" BorderBrush="#2EA043" BorderThickness="1"
+                CornerRadius="10" Padding="16,10">
+            <StackPanel Orientation="Horizontal" Spacing="9">
+                <PathIcon Data="{StaticResource IconPaste}" Width="17" Height="17" Foreground="#3FB950"
+                          VerticalAlignment="Center" />
+                <TextBlock Text="Вставить из буфера" Foreground="#3FB950" FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Button>
+
+        <Expander Grid.Row="2" Margin="0,14,0,0" IsExpanded="{Binding FormExpanded, Mode=TwoWay}"
+                  Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12"
+                  Foreground="#E6EDF3" HorizontalAlignment="Stretch">
+            <Expander.Header>
+                <StackPanel Orientation="Horizontal" Spacing="9">
+                    <PathIcon Data="{StaticResource IconPlus}" Width="16" Height="16" Foreground="#58A6FF"
+                              VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding FormHeaderText}" Foreground="#E6EDF3" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </Expander.Header>
+
+            <StackPanel Spacing="12" Margin="2,10,2,4">
+
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="lbl" Text="Название (необязательно)" />
+                    <TextBox Classes="fld" Text="{Binding FName}" PlaceholderText="Мой сервер" />
+                </StackPanel>
+
+                <Grid ColumnDefinitions="*,14,96">
+                    <StackPanel Grid.Column="0" Spacing="4">
+                        <TextBlock Classes="lbl" Text="Адрес сервера" />
+                        <TextBox Classes="fld" Text="{Binding FHost}" PlaceholderText="example.com" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Spacing="4">
+                        <TextBlock Classes="lbl" Text="Порт" />
+                        <TextBox Classes="fld" Text="{Binding FPort}" PlaceholderText="443" />
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="lbl" Text="Ключ сервера (64 hex)" />
+                    <TextBox Classes="fld" Text="{Binding FKey}" PlaceholderText="a1b2c3…"
+                             FontFamily="Consolas,monospace" TextWrapping="Wrap" MaxHeight="72" AcceptsReturn="False" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="lbl" Text="SNI (необязательно, по умолчанию = адрес)" />
+                    <TextBox Classes="fld" Text="{Binding FSni}" PlaceholderText="cdn.example.com" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="lbl" Text="Ключ клиента ck (необязательно, 64 hex)" />
+                    <TextBox Classes="fld" Text="{Binding FClientKey}" PlaceholderText="необязательно"
+                             FontFamily="Consolas,monospace" TextWrapping="Wrap" MaxHeight="72" AcceptsReturn="False" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="lbl" Text="Доп. узлы (необязательно)" />
+                    <TextBox Classes="fld" Text="{Binding FExtra}" PlaceholderText="host:port, host:port" />
+                </StackPanel>
+
+                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+                    <Button Grid.Column="0" Command="{Binding ClearFormCommand}"
+                            Background="Transparent" Foreground="#8B949E" Padding="8,8" CornerRadius="8"
+                            Content="{Binding FormSecondaryText}" />
+                    <Button Grid.Column="2" Command="{Binding AddManualCommand}"
+                            Background="#238636" Foreground="#FFFFFF" CornerRadius="10" Padding="18,10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource IconCheck}" Width="16" Height="16" Foreground="#FFFFFF"
+                                      VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding FormPrimaryText}" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </StackPanel>
+        </Expander>
+
+        <ScrollViewer Grid.Row="3" Margin="0,16,0,0">
+            <ItemsControl ItemsSource="{Binding Profiles}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="m:MobileProfile">
+                        <Border Classes.active="{Binding IsActive}"
+                                Background="#161B22" BorderBrush="#30363D" BorderThickness="1"
+                                CornerRadius="12" Padding="14,12" Margin="0,0,0,10">
+                            <Grid ColumnDefinitions="*,Auto">
+
+                                <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="7">
+                                        <PathIcon Data="{StaticResource IconCheck}" Width="15" Height="15"
+                                                  Foreground="#3FB950"
+                                                  VerticalAlignment="Center" IsVisible="{Binding IsActive}" />
+                                        <TextBlock Text="{Binding Name}" Foreground="#E6EDF3" FontSize="15"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Link}" Foreground="#8B949E" FontSize="11"
+                                               FontFamily="Consolas,monospace" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                            VerticalAlignment="Center">
+                                    <Button IsVisible="{Binding !IsActive}"
+                                            Background="#21262D" Foreground="#E6EDF3" CornerRadius="8" Padding="14,7"
+                                            Content="Выбрать"
+                                            Command="{Binding $parent[ItemsControl].((vm:ServersPageViewModel)DataContext).SetActiveCommand}"
+                                            CommandParameter="{Binding}" />
+                                    <Border IsVisible="{Binding IsActive}" Background="#0E2B18" BorderBrush="#2EA043"
+                                            BorderThickness="1"
+                                            CornerRadius="8" Padding="12,6">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <PathIcon Data="{StaticResource IconCheck}" Width="14" Height="14"
+                                                      Foreground="#3FB950" VerticalAlignment="Center" />
+                                            <TextBlock Text="Активен" Foreground="#3FB950" FontSize="13"
+                                                       FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Button Background="Transparent" CornerRadius="8" Padding="8"
+                                            Command="{Binding $parent[ItemsControl].((vm:ServersPageViewModel)DataContext).BeginEditCommand}"
+                                            CommandParameter="{Binding}">
+                                        <PathIcon Data="{StaticResource IconEdit}" Width="18" Height="18"
+                                                  Foreground="#8B949E" />
+                                    </Button>
+                                    <Button Background="Transparent" CornerRadius="8" Padding="8"
+                                            Command="{Binding $parent[ItemsControl].((vm:ServersPageViewModel)DataContext).RemoveCommand}"
+                                            CommandParameter="{Binding}">
+                                        <PathIcon Data="{StaticResource IconTrash}" Width="18" Height="18"
+                                                  Foreground="#F85149" />
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <TextBlock Grid.Row="4" Text="{Binding Hint}" FontSize="12" Foreground="#8B949E"
+                   TextWrapping="Wrap" Margin="2,6,0,0" />
+    </Grid>
+</UserControl>

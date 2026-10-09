@@ -14,11 +14,11 @@ namespace Chameleon.Mobile.Android.Vpn;
 /// уведомление (иначе система прибьёт сервис). Этап 1: только TUN + fd, без
 /// tun2socks/Core (трафик пойдёт на этапе 3).
 ///
-/// Без AndroidX — нативный Notification.Builder.
+/// Без AndroidX - нативный Notification.Builder.
 /// </summary>
 [Service(Permission = "android.permission.BIND_VPN_SERVICE", Exported = false,
     ForegroundServiceType = global::Android.Content.PM.ForegroundService.TypeSystemExempted)]
-[IntentFilter(new[] { "android.net.VpnService" })]
+[IntentFilter(["android.net.VpnService"])]
 public sealed class ChameleonVpnService : VpnService
 {
     public const string ActionStart = "chameleon.vpn.START";
@@ -29,11 +29,12 @@ public sealed class ChameleonVpnService : VpnService
     private ParcelFileDescriptor? _tun;
     private VpnEngine? _engine;
     private Thread? _tun2socks;
+    private int _tunFd = -1;
+    private System.Threading.Timer? _statsTimer;
     private CancellationTokenSource? _cts;
 
     public const string ExtraLink = "chameleon.link";
-
-    // ВРЕМЕННО для теста: вставь СВОЮ ссылку chameleon:// из панели (или передавай через ExtraLink).
+    
     private const string TestLink = "chameleon://CHANGE_ME:443?key=...&sni=...&ck=...";
 
     public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
@@ -59,11 +60,10 @@ public sealed class ChameleonVpnService : VpnService
             Stop();
             return StartCommandResult.NotSticky;
         }
-
-        // Этап 2: поднять ChameleonClient (SOCKS) из ссылки. Трафик пойдёт на этапе 3
-        // (tun2socks свяжет TUN fd с этим SOCKS).
-        int fdBefore = _tun!.Fd; // fd, пока PFD им владеет
-        int tunFd = _tun.DetachFd(); // отсоединённый fd для hev
+        
+        int fdBefore = _tun!.Fd;
+        int tunFd = _tun.DetachFd();
+        _tunFd = tunFd;
         global::Android.Util.Log.Info("ChameleonVpn", $"fd: before(getFd)={fdBefore}, detached={tunFd}");
         _cts = new CancellationTokenSource();
         _engine = new VpnEngine();
@@ -71,8 +71,7 @@ public sealed class ChameleonVpnService : VpnService
         {
             try
             {
-                await _engine.StartAsync(link, _cts.Token); // поднять SOCKS (ChameleonClient)
-                // SOCKS готов → запускаем tun2socks (БЛОКИРУЮЩИЙ, свой поток).
+                await _engine.StartAsync(link, _cts.Token);
                 _tun2socks = new Thread(() =>
                 {
                     string hevLog = System.IO.Path.Combine(FilesDir!.AbsolutePath, "hev.log");
@@ -84,6 +83,20 @@ public sealed class ChameleonVpnService : VpnService
                 global::Android.Util.Log.Info("ChameleonVpn",
                     $"tun2socks запущен (fd={tunFd} → SOCKS {VpnEngine.SocksPort})");
                 global::Chameleon.Mobile.Vpn.Report(VpnStatus.Connected);
+                _ = Task.Run(FetchIpAsync); // внешний IP через наш SOCKS
+                _statsTimer = new System.Threading.Timer(_ =>
+                {
+                    try
+                    {
+                        if (_engine is { } en)
+                            global::Chameleon.Mobile.Vpn.ReportStats(
+                                new global::Chameleon.Mobile.VpnStats(en.BytesUp, en.BytesDown, en.RttMs));
+                    }
+                    catch
+                    {
+                        // ignored
+                    }
+                }, null, 1000, 2000);
             }
             catch (Exception e)
             {
@@ -99,19 +112,20 @@ public sealed class ChameleonVpnService : VpnService
     {
         var builder = new Builder(this)
             .SetSession("Chameleon")
-            .SetMtu(8500) // как в примерах hev-socks5-tunnel
-            .AddAddress("10.0.0.2", 24) // адрес с подсетью (не /32)
+            .SetMtu(8500)
+            .AddAddress("10.0.0.2", 24)
             .AddDnsServer("1.1.1.1")
+            .AddDnsServer("9.9.9.9")
             .AddDnsServer("8.8.8.8")
-            .AddRoute("0.0.0.0", 0); // весь IPv4 в туннель
-
-        // своё приложение — мимо туннеля (иначе петля)
+            .AddRoute("0.0.0.0", 0);
+        
         try
         {
             if (PackageName is not null) builder.AddDisallowedApplication(PackageName);
         }
         catch
         {
+            // ignored
         }
 
         _tun = builder.Establish();
@@ -119,7 +133,26 @@ public sealed class ChameleonVpnService : VpnService
             throw new InvalidOperationException("Establish() == null (нет разрешения VPN?)");
 
         global::Android.Util.Log.Info("ChameleonVpn", $"TUN up, fd={_tun.Fd}");
-        // TODO этап 3: tun2socks(fd, socksAddr) + ChameleonClient
+    }
+
+    /// <summary>Получить внешний IP через наш SOCKS (как на десктопе) и сообщить в UI.</summary>
+    private static async Task FetchIpAsync()
+    {
+        try
+        {
+            var handler = new System.Net.Http.SocketsHttpHandler
+            {
+                Proxy = new System.Net.WebProxy($"socks5://127.0.0.1:{VpnEngine.SocksPort}"),
+                UseProxy = true,
+            };
+            using var http = new System.Net.Http.HttpClient(handler) { Timeout = TimeSpan.FromSeconds(12) };
+            string ip = (await http.GetStringAsync("https://api.ipify.org").ConfigureAwait(false)).Trim();
+            global::Chameleon.Mobile.Vpn.ReportIp(string.IsNullOrWhiteSpace(ip) ? "-" : ip);
+        }
+        catch
+        {
+            global::Chameleon.Mobile.Vpn.ReportIp("-");
+        }
     }
 
     private volatile bool _stopping;
@@ -129,31 +162,58 @@ public sealed class ChameleonVpnService : VpnService
         if (_stopping) return;
         _stopping = true;
 
-        // Статус — сразу (UI отреагирует), остальное максимально безопасно.
         try
         {
-            global::Chameleon.Mobile.Vpn.Report(VpnStatus.Disconnected);
+            _statsTimer?.Dispose();
         }
         catch
         {
+            // ignored
         }
 
-        // Остановить нативный туннель (hev сам закроет fd, которым владеет).
+        _statsTimer = null;
+
         try
         {
             Tun2Socks.Stop();
         }
         catch
         {
+            // ignored
         }
 
-        // Остановить наш клиент.
+        if (_tunFd >= 0)
+        {
+            try
+            {
+                Tun2Socks.CloseFd(_tunFd);
+            }
+            catch
+            {
+                // ignored
+            }
+
+            _tunFd = -1;
+        }
+
+        try
+        {
+            _tun2socks?.Join(1500);
+        }
+        catch
+        {
+            // ignored
+        }
+
+        _tun2socks = null;
+
         try
         {
             _cts?.Cancel();
         }
         catch
         {
+            // ignored
         }
 
         if (_engine is not null)
@@ -168,19 +228,20 @@ public sealed class ChameleonVpnService : VpnService
                 }
                 catch
                 {
+                    // ignored
                 }
             });
         }
 
-        // НЕ трогаем _tun.Fd — он отсоединён (DetachFd) и принадлежит hev.
         _tun = null;
-
+        
         try
         {
             StopForeground(StopForegroundFlags.Remove);
         }
         catch
         {
+            // ignored
         }
 
         try
@@ -189,6 +250,16 @@ public sealed class ChameleonVpnService : VpnService
         }
         catch
         {
+            // ignored
+        }
+
+        try
+        {
+            global::Chameleon.Mobile.Vpn.Report(VpnStatus.Disconnected);
+        }
+        catch
+        {
+            // ignored
         }
     }
 
@@ -241,6 +312,7 @@ public sealed class ChameleonVpnService : VpnService
         }
         catch
         {
+            // ignored
         }
 
         base.OnDestroy();

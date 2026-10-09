@@ -19,4 +19,8 @@
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Chameleon.Core\Chameleon.Core.csproj" />
+  </ItemGroup>
 </Project>

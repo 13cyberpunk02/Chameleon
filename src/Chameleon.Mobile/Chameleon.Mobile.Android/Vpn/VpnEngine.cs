@@ -22,21 +22,26 @@ public sealed class VpnEngine : IAsyncDisposable
     public int Port => SocksPort;
     public bool Running => _client is not null;
 
+    // Статистика для UI (счётчики клиента).
+    public long BytesUp => _client?.BytesSent ?? 0;
+    public long BytesDown => _client?.BytesReceived ?? 0;
+    public int RttMs => _client?.RttMs ?? 0;
+
     /// <summary>Разобрать ссылку и поднять клиента. Бросает при ошибке.</summary>
     public async Task StartAsync(string chameleonLink, CancellationToken ct)
     {
-        if (!ChameleonLink.TryParse(chameleonLink, out var link, out var err) || link is null)
+        if (!ChameleonLink.TryParse(chameleonLink, out var link, out string? err) || link is null)
             throw new InvalidOperationException("Неверная ссылка: " + err);
         
         var addrs = await Dns.GetHostAddressesAsync(link.Host, ct).ConfigureAwait(false);
         var ip = Array.Find(addrs, a => a.AddressFamily == AddressFamily.InterNetwork) ?? addrs[0];
         var serverEp = new IPEndPoint(ip, link.Port);
         
-        var clientKey = !string.IsNullOrEmpty(link.ClientPrivateKeyHex)
+        KeyPair clientKey = !string.IsNullOrEmpty(link.ClientPrivateKeyHex)
             ? KeyFromPrivate(link.ClientPrivateKeyHex)
             : X25519.GenerateKeyPair();
 
-        var serverPub = Convert.FromHexString(link.ServerPublicKeyHex);
+        byte[] serverPub = Convert.FromHexString(link.ServerPublicKeyHex);
         var socksEp = new IPEndPoint(IPAddress.Loopback, SocksPort);
 
         _client = await ChameleonClient.StartAsync(
@@ -50,7 +55,7 @@ public sealed class VpnEngine : IAsyncDisposable
 
     private static KeyPair KeyFromPrivate(string privHex)
     {
-        var priv = Convert.FromHexString(privHex);
+        byte[] priv = Convert.FromHexString(privHex);
         return new KeyPair(priv, X25519.ScalarMultBase(priv));
     }
 

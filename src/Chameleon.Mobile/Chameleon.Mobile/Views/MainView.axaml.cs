@@ -11,12 +11,4 @@ public partial class MainView : UserControl
     {
         InitializeComponent();
     }
-
-    protected override void OnLoaded(RoutedEventArgs e)
-    {
-        base.OnLoaded(e);
-        if (DataContext is not MainViewModel vm) return;
-        var top = TopLevel.GetTopLevel(this);
-        vm.GetClipboard = async () => top?.Clipboard is null ? null : await top.Clipboard.TryGetTextAsync();
-    }
 }

@@ -31,10 +31,13 @@ public static class VpnController
             context.StartService(intent);
     }
 
-    public static void Stop(Context context)
+    /// <summary>Остановить VPN. Через Application.Context - работает независимо от
+    /// состояния Activity (в т.ч. после сворачивания/пересоздания).</summary>
+    public static void Stop()
     {
-        var intent = new Intent(context, typeof(ChameleonVpnService))
+        var ctx = global::Android.App.Application.Context;
+        var intent = new Intent(ctx, typeof(ChameleonVpnService))
             .SetAction(ChameleonVpnService.ActionStop);
-        context.StartService(intent);
+        ctx.StartService(intent);
     }
 }

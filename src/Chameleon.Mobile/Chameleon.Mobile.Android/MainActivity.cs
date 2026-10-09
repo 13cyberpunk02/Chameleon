@@ -10,7 +10,8 @@ namespace Chameleon.Mobile.Android;
 [Activity(
     Label = "Chameleon",
     Theme = "@style/MyTheme.NoActionBar",
-    Icon = "@drawable/icon",
+    Icon = "@mipmap/appicon",
+    RoundIcon = "@mipmap/appicon_round",
     MainLauncher = true,
     ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode)]
 public class MainActivity : AvaloniaMainActivity, IVpnController
@@ -21,19 +22,27 @@ public class MainActivity : AvaloniaMainActivity, IVpnController
     {
         base.OnCreate(savedInstanceState);
         Chameleon.Mobile.Vpn.Current = this;
+        Chameleon.Mobile.Vpn.Clipboard = new AndroidClipboard();
+    }
+    
+    protected override void OnResume()
+    {
+        base.OnResume();
+        Chameleon.Mobile.Vpn.Current = this;
     }
 
     public void Connect(string link)
     {
         _pendingLink = link;
-        var prepare = VpnController.Prepare(this);
+        var prepare = VpnController.Prepare(this);         // нужно ли разрешение VPN?
         if (prepare is not null)
             StartActivityForResult(prepare, VpnController.RequestCode);
         else
             StartVpn();
     }
 
-    public void Disconnect() => VpnController.Stop(this);
+    // Остановка НЕ зависит от Activity - через Application.Context.
+    public void Disconnect() => VpnController.Stop();
 
     protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
     {

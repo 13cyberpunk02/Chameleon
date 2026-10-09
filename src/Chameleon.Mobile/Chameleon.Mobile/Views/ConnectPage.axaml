@@ -1,0 +1,90 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Chameleon.Mobile.ViewModels"
+             x:Class="Chameleon.Mobile.Views.ConnectPage"
+             x:DataType="vm:ConnectPageViewModel">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="24,28">
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+            <Image Source="avares://Chameleon.Mobile/Assets/chameleon-shield.png" Width="34" Height="34" />
+            <TextBlock Text="Chameleon" FontSize="24" FontWeight="Bold" Foreground="#E6EDF3" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="22">
+
+            <Panel Width="210" Height="210" HorizontalAlignment="Center">
+                <Ellipse Name="Pulse" Width="190" Height="190" HorizontalAlignment="Center" VerticalAlignment="Center"
+                         Stroke="{Binding StatusColor}" StrokeThickness="2" Opacity="0"
+                         Classes.pulsing="{Binding IsPulsing}" />
+                <Button Command="{Binding ToggleCommand}" Width="190" Height="190" CornerRadius="95"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Background="#161B22"
+                        BorderBrush="{Binding StatusColor}" BorderThickness="5">
+                    <Path Data="M12 3 L12 11 M18.4 6.6 a 9 9 0 1 1 -12.8 0"
+                          Stroke="{Binding StatusColor}" StrokeThickness="1.6"
+                          StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent"
+                          Width="72" Height="72" Stretch="Uniform"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Button>
+            </Panel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                <Ellipse Width="11" Height="11" VerticalAlignment="Center" Fill="{Binding StatusColor}" />
+                <TextBlock Text="{Binding StatusText}" FontSize="18" FontWeight="SemiBold"
+                           Foreground="{Binding StatusColor}" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding ProfileName}" FontSize="14" Foreground="#8B949E" HorizontalAlignment="Center" />
+
+            <Border IsVisible="{Binding ShowStats}" Background="#161B22" BorderBrush="#30363D"
+                    BorderThickness="1" CornerRadius="12" Padding="18,14" MinWidth="260">
+                <StackPanel Spacing="12">
+                    <!-- IP сервера -->
+                    <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Text="IP сервера" Foreground="#8B949E" FontSize="13"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding PublicIp}" Foreground="#E6EDF3" FontSize="14"
+                                   FontFamily="Consolas,monospace" HorizontalAlignment="Right" />
+                    </Grid>
+                    <Rectangle Height="1" Fill="#30363D" />
+                    <Grid ColumnDefinitions="*,*,*">
+                        <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="2">
+                            <TextBlock Text="↓" Foreground="#3FB950" FontSize="13" HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding TrafficDown}" Foreground="#E6EDF3" FontSize="14"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Center" Spacing="2">
+                            <TextBlock Text="↑" Foreground="#58A6FF" FontSize="13" HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding TrafficUp}" Foreground="#E6EDF3" FontSize="14"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Center" Spacing="2">
+                            <TextBlock Text="RTT" Foreground="#8B949E" FontSize="13" HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding Rtt}" Foreground="#E6EDF3" FontSize="14"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <TextBlock Grid.Row="2" Text="{Binding Hint}" FontSize="12" Foreground="#8B949E"
+                   TextWrapping="Wrap" HorizontalAlignment="Center" />
+    </Grid>
+
+    <UserControl.Styles>
+        <Style Selector="Ellipse.pulsing">
+            <Style.Animations>
+                <Animation Duration="0:0:1.8" IterationCount="INFINITE" Easing="SineEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0.7" /> <Setter Property="Width" Value="190" />
+                        <Setter Property="Height" Value="190" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="0" />   <Setter Property="Width" Value="210" />
+                        <Setter Property="Height" Value="210" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </UserControl.Styles>
+</UserControl>

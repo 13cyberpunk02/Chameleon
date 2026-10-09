@@ -1,0 +1,118 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Chameleon.Mobile.ViewModels"
+             x:Class="Chameleon.Mobile.Views.SettingsPage"
+             x:DataType="vm:SettingsPageViewModel">
+    <UserControl.Resources>
+        <StreamGeometry x:Key="IconGear">M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z</StreamGeometry>
+        <StreamGeometry x:Key="IconBolt">M7 2v11h3v9l7-12h-4l4-8z</StreamGeometry>
+        <StreamGeometry x:Key="IconServer">M4 1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zm0 13h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zM7 4.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm0 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2z</StreamGeometry>
+        <StreamGeometry x:Key="IconTrash">M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z</StreamGeometry>
+        <StreamGeometry x:Key="IconInfo">M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z</StreamGeometry>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock.section">
+            <Setter Property="Foreground" Value="#8B949E" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="2,0,0,2" />
+        </Style>
+    </UserControl.Styles>
+
+    <ScrollViewer>
+        <StackPanel Margin="20,40,20,16" Spacing="14">
+
+            <!-- Заголовок -->
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <PathIcon Data="{StaticResource IconGear}" Width="22" Height="22" Foreground="#58A6FF"
+                          VerticalAlignment="Center" />
+                <TextBlock Text="Настройки" FontSize="24" FontWeight="Bold" Foreground="#E6EDF3"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+
+            <!-- Подключение -->
+            <StackPanel Spacing="6">
+                <TextBlock Classes="section" Text="ПОДКЛЮЧЕНИЕ" />
+                <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12"
+                        Padding="16,14">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <PathIcon Grid.Column="0" Data="{StaticResource IconBolt}" Width="20" Height="20"
+                                  Foreground="#D29922" VerticalAlignment="Center" Margin="0,0,13,0" />
+                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                            <TextBlock Text="Авто-подключение" Foreground="#E6EDF3" FontSize="15" />
+                            <TextBlock Text="Подключаться к активному серверу при запуске"
+                                       Foreground="#8B949E" FontSize="12" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding AutoConnect}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- Серверы -->
+            <StackPanel Spacing="6">
+                <TextBlock Classes="section" Text="СЕРВЕРЫ" />
+                <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12"
+                        Padding="16,14">
+                    <StackPanel Spacing="14">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <PathIcon Grid.Column="0" Data="{StaticResource IconServer}" Width="20" Height="20"
+                                      Foreground="#3FB950" VerticalAlignment="Center" Margin="0,0,13,0" />
+                            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                <TextBlock Text="Активный сервер" Foreground="#8B949E" FontSize="12" />
+                                <TextBlock Text="{Binding ActiveServerName}" Foreground="#E6EDF3" FontSize="15"
+                                           FontWeight="SemiBold" />
+                            </StackPanel>
+                            <Border Grid.Column="2" Background="#0D1117" BorderBrush="#30363D" BorderThickness="1"
+                                    CornerRadius="8" Padding="10,5" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding ServerCount, StringFormat='Всего: {0}'}" Foreground="#8B949E"
+                                           FontSize="12" />
+                            </Border>
+                        </Grid>
+
+                        <Rectangle Height="1" Fill="#30363D" />
+
+                        <Button Command="{Binding ClearProfilesCommand}" HorizontalAlignment="Stretch"
+                                Background="Transparent" BorderBrush="#F85149" BorderThickness="1"
+                                CornerRadius="8" Padding="0,11">
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                <PathIcon Data="{StaticResource IconTrash}" Width="17" Height="17" Foreground="#F85149"
+                                          VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding ClearButtonText}" Foreground="#F85149" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- О приложении -->
+            <StackPanel Spacing="6">
+                <TextBlock Classes="section" Text="О ПРИЛОЖЕНИИ" />
+                <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12"
+                        Padding="16,14">
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Image Source="avares://Chameleon.Mobile/Assets/chameleon-shield.png" Width="40"
+                                   Height="40" VerticalAlignment="Center" />
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Version}" Foreground="#E6EDF3" FontSize="15"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="Протокол с маскировкой под TLS" Foreground="#8B949E" FontSize="12" />
+                            </StackPanel>
+                        </StackPanel>
+                        <Grid ColumnDefinitions="Auto,*">
+                            <PathIcon Grid.Column="0" Data="{StaticResource IconInfo}" Width="16" Height="16"
+                                      Foreground="#8B949E" VerticalAlignment="Top" Margin="0,2,10,0" />
+                            <TextBlock Grid.Column="1"
+                                       Text="Профиль задаётся ссылкой chameleon:// от администратора сервера или вводится вручную на вкладке «Серверы»."
+                                       Foreground="#8B949E" FontSize="12" TextWrapping="Wrap" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <TextBlock Text="{Binding Hint}" FontSize="12" Foreground="#8B949E" TextWrapping="Wrap" Margin="2,2,0,0" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

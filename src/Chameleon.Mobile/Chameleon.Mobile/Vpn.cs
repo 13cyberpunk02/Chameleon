@@ -1,23 +1,49 @@
 ﻿using System;
+
 namespace Chameleon.Mobile;
 
-/// <summary>
-/// Глобальный доступ UI к VPN + статус. Android-сервис сообщает статус через Report,
-/// UI подписывается на StatusChanged.
-/// </summary>
+/// <summary>Глобальный доступ UI к VPN: команды, статус, статистика.</summary>
 public static class Vpn
 {
     public static IVpnController? Current { get; set; }
+    public static IClipboard? Clipboard { get; set; }
 
     public static VpnStatus Status { get; private set; } = VpnStatus.Disconnected;
     public static event Action<VpnStatus>? StatusChanged;
 
-    /// <summary>Сервис/код сообщает новый статус (потокобезопасно для UI через Avalonia Dispatcher).</summary>
+    public static VpnStats Stats { get; private set; }
+    public static event Action<VpnStats>? StatsChanged;
+
+    public static string PublicIp { get; private set; } = "-";
+    public static event Action<string>? IpChanged;
+
     public static void Report(VpnStatus status)
     {
         Status = status;
-        var h = StatusChanged;
-        if (h is null) return;
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => h(status));
+        Post(() => StatusChanged?.Invoke(status));
+    }
+
+    public static void ReportStats(VpnStats stats)
+    {
+        Stats = stats;
+        Post(() => StatsChanged?.Invoke(stats));
+    }
+
+    public static void ReportIp(string ip)
+    {
+        PublicIp = ip;
+        Post(() => IpChanged?.Invoke(ip));
+    }
+
+    private static void Post(Action a)
+    {
+        try
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(a);
+        }
+        catch
+        {
+            // ignored
+        }
     }
 }
