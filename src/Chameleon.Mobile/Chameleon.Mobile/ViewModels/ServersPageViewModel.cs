@@ -110,14 +110,14 @@ public partial class ServersPageViewModel : ViewModelBase
         string key = (FKey ?? "").Trim().ToLowerInvariant();
         if (key.Length != 64 || !IsHex(key))
         {
-            Hint = "Ключ сервера — ровно 64 hex-символа";
+            Hint = "Ключ сервера - ровно 64 hex-символа";
             return;
         }
 
         string ck = (FClientKey ?? "").Trim();
         if (ck.Length > 0 && (ck.Length != 64 || !IsHex(ck)))
         {
-            Hint = "Ключ клиента — ровно 64 hex-символа";
+            Hint = "Ключ клиента - ровно 64 hex-символа";
             return;
         }
 

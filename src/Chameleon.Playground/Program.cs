@@ -2,16 +2,17 @@
 
 var examples = new (string Name, string Description, Func<Task> Run)[]
 {
-    ("handshake", "Рукопожатие Noise IK + record-слой + проверка на зонд", HandshakeExample.RunAsync),
-    ("socks5", "Сквозной SOCKS5-прокси поверх голого TCP", Socks5ProxyExample.RunAsync),
-    ("tls", "Прокси поверх TLS + декой-прокси (зонд видит настоящий сайт)", TlsProxyExample.RunAsync),
-    ("ja4", "Отпечаток ClientHello: JA3/JA4 против эталона Chromium", Ja4Example.RunAsync),
-    ("shaper", "Шейпер: стохастический автомат поведения + смена модели", ShaperExample.RunAsync),
-    ("models", "Модели поведения: обучение из сэмплов, JSON, загрузка", TrafficModelExample.RunAsync),
-    ("policing", "Детектор полисинга vs перегрузки", PolicingExample.RunAsync),
-    ("multipath", "Мультипуть: две несущие, убийство одной посреди передачи", MultipathExample.RunAsync),
-    ("join", "Присоединение несущих по сети: три несущие в одной сессии", CarrierJoinExample.RunAsync),
-    ("fec", "FEC: Reed-Solomon, восстановление потерь без ретрансмита", FecExample.RunAsync),
+    ("handshake", "Рукопожатие Noise IK + record-слой + проверка на зонд",        HandshakeExample.RunAsync),
+    ("socks5",    "Сквозной SOCKS5-прокси поверх голого TCP",                     Socks5ProxyExample.RunAsync),
+    ("tls",       "Прокси поверх TLS + декой-прокси (зонд видит настоящий сайт)",  TlsProxyExample.RunAsync),
+    ("ja4",       "Отпечаток ClientHello: JA3/JA4 против эталона Chromium",        Ja4Example.RunAsync),
+    ("shaper",    "Шейпер: стохастический автомат поведения + смена модели",       ShaperExample.RunAsync),
+    ("models",    "Модели поведения: обучение из сэмплов, JSON, загрузка",         TrafficModelExample.RunAsync),
+    ("policing",  "Детектор полисинга vs перегрузки",                             PolicingExample.RunAsync),
+    ("multipath", "Мультипуть: две несущие, убийство одной посреди передачи",      MultipathExample.RunAsync),
+    ("join",      "Присоединение несущих по сети: три несущие в одной сессии",     CarrierJoinExample.RunAsync),
+    ("fec",       "FEC: Reed-Solomon, восстановление потерь без ретрансмита",      FecExample.RunAsync),
+    ("fecpath",   "FEC в сессии: мультипуть + 20% потерь на несущей (ON vs OFF)",  FecMultipathExample.RunAsync),
 };
 
 string? pick = args.Length > 0 ? args[0].ToLowerInvariant() : null;
@@ -32,7 +33,6 @@ if (chosen.Run is null)
             await e.Run();
         }
     }
-
     return;
 }
 

@@ -65,6 +65,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     private Task? _policingLoop;
     private long _deliveredBytesInterval;
     private long _lossCountInterval;
+    private int _fecRecovered;
     private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>Завершается, когда все несущие сессии закрылись (клиент отключился).</summary>
@@ -99,6 +100,12 @@ public sealed class ChameleonSession : IAsyncDisposable
     public long BytesReceived => Interlocked.Read(ref _bytesReceived);
     public int RttMs => _cc.SmoothedRttMs;
 
+    /// <summary>Сколько НОВЫХ пакетов доставлено восстановлением FEC (а не несущей/ретрансмитом). Диагностика.</summary>
+    public int FecRecovered => Volatile.Read(ref _fecRecovered);
+
+    /// <summary>Режим полисинга активен (детектор счёл потери искусственными). Диагностика.</summary>
+    public bool PolicingDetected => _cc.PolicingMode;
+
     public static ChameleonSession Start(ICarrierChannel channel, bool isClient,
         TrafficShaper? shaper = null, FecOptions? fec = null)
     {
@@ -121,7 +128,6 @@ public sealed class ChameleonSession : IAsyncDisposable
     }
 
     private void StartCarrierLoop(Carrier c) => c.Loop = Task.Run(() => ReceiveLoopAsync(c, _cts.Token));
-
     
     public async ValueTask<ChameleonStream> OpenStreamAsync(
         string host, int port, StreamKind kind = StreamKind.Tcp, CancellationToken cancellationToken = default)
@@ -167,7 +173,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         {
             int rawLen = build(scratch);
             int length = Pad(scratch, rawLen);
-    
+            
             VarInt.TryRead(scratch, out ulong pn, out _);
             byte[] plaintext = [.. scratch[..length]];
             
@@ -363,7 +369,7 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     private async ValueTask SendAckAsync(Carrier via, CancellationToken cancellationToken)
     {
-        (ulong largest, ulong firstRange, var ranges) = BuildAckRanges();
+        (ulong largest, ulong firstRange, List<AckRange> ranges) = BuildAckRanges();
         byte[] buffer = ArrayPool<byte>.Shared.Rent(512);
         try
         {
@@ -451,7 +457,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         finally
         {
             carrier.Alive = false;
-            if (_carriers.All(c => !c.Alive)) _completed.TrySetResult(); // все несущие мертвы → сессия окончена
+            if (_carriers.All(c => !c.Alive)) _completed.TrySetResult();
         }
     }
 
@@ -462,7 +468,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     /// через этот же метод (дедуп не даст обработать дважды, если пакет позже доедет).
     /// </summary>
     private async ValueTask HandleIncomingAsync(ReadOnlyMemory<byte> record, Carrier? via,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool fromFec = false)
     {
         var frames = new List<Frame>();
         ulong pn;
@@ -474,7 +480,7 @@ public sealed class ChameleonSession : IAsyncDisposable
         {
             return;
         }
-
+        
         if (_fecDec is not null && CarrierCount > 1) _fecDec.Remember(pn, record.Span);
 
         bool reliable = false, isNew;
@@ -486,6 +492,7 @@ public sealed class ChameleonSession : IAsyncDisposable
 
         if (isNew)
         {
+            if (fromFec) Interlocked.Increment(ref _fecRecovered);
             foreach (var frame in frames)
             {
                 reliable |= frame is StreamOpenFrame or StreamFrame or StreamFinFrame or StreamResetFrame;
@@ -493,7 +500,8 @@ public sealed class ChameleonSession : IAsyncDisposable
                 {
                     if (_fecDec is not null)
                         foreach (var recovered in _fecDec.OnRepair(repair))
-                            await HandleIncomingAsync(recovered, via, cancellationToken).ConfigureAwait(false);
+                            await HandleIncomingAsync(recovered, via, cancellationToken, fromFec: true)
+                                .ConfigureAwait(false);
                 }
                 else
                 {
@@ -553,7 +561,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                 try
                 {
                     int length = BuildCover(buffer, NextPacketNumber(), size);
-                    await SendOnAnyAsync(buffer[..length].ToArray(), length, cancellationToken).ConfigureAwait(false);
+                    await SendOnAnyAsync([.. buffer[..length]], length, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {

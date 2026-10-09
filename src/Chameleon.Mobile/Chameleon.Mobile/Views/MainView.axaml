@@ -93,7 +93,7 @@
             <Setter Property="Stretch" Value="Uniform" />
             <Setter Property="HorizontalAlignment" Value="Center" />
         </Style>
-        <!-- активная вкладка — зелёным -->
+        <!-- активная вкладка - зелёным -->
         <Style Selector="Button.nav.active TextBlock">
             <Setter Property="Foreground" Value="#3FB950" />
         </Style>

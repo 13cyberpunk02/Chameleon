@@ -26,7 +26,7 @@ public class MainActivity : AvaloniaMainActivity, IVpnController
         Chameleon.Mobile.Vpn.Apps = new AndroidAppList(this);
     }
 
-    // При возврате из фона — снова регистрируем себя (Activity могла пересоздаться).
+    // При возврате из фона - снова регистрируем себя (Activity могла пересоздаться).
     protected override void OnResume()
     {
         base.OnResume();
