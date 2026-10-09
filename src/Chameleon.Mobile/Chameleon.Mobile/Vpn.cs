@@ -7,6 +7,7 @@ public static class Vpn
 {
     public static IVpnController? Current { get; set; }
     public static IClipboard? Clipboard { get; set; }
+    public static IAppList? Apps { get; set; }
 
     public static VpnStatus Status { get; private set; } = VpnStatus.Disconnected;
     public static event Action<VpnStatus>? StatusChanged;

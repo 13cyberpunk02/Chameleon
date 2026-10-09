@@ -23,8 +23,10 @@ public class MainActivity : AvaloniaMainActivity, IVpnController
         base.OnCreate(savedInstanceState);
         Chameleon.Mobile.Vpn.Current = this;
         Chameleon.Mobile.Vpn.Clipboard = new AndroidClipboard();
+        Chameleon.Mobile.Vpn.Apps = new AndroidAppList(this);
     }
-    
+
+    // При возврате из фона — снова регистрируем себя (Activity могла пересоздаться).
     protected override void OnResume()
     {
         base.OnResume();
@@ -34,14 +36,13 @@ public class MainActivity : AvaloniaMainActivity, IVpnController
     public void Connect(string link)
     {
         _pendingLink = link;
-        var prepare = VpnController.Prepare(this);         // нужно ли разрешение VPN?
+        var prepare = VpnController.Prepare(this);
         if (prepare is not null)
             StartActivityForResult(prepare, VpnController.RequestCode);
         else
             StartVpn();
     }
-
-    // Остановка НЕ зависит от Activity - через Application.Context.
+    
     public void Disconnect() => VpnController.Stop();
 
     protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)

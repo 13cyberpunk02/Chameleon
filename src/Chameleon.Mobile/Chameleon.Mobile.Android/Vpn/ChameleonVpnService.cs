@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Android.App;
@@ -34,7 +36,7 @@ public sealed class ChameleonVpnService : VpnService
     private CancellationTokenSource? _cts;
 
     public const string ExtraLink = "chameleon.link";
-    
+
     private const string TestLink = "chameleon://CHANGE_ME:443?key=...&sni=...&ck=...";
 
     public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
@@ -60,7 +62,7 @@ public sealed class ChameleonVpnService : VpnService
             Stop();
             return StartCommandResult.NotSticky;
         }
-        
+
         int fdBefore = _tun!.Fd;
         int tunFd = _tun.DetachFd();
         _tunFd = tunFd;
@@ -83,14 +85,14 @@ public sealed class ChameleonVpnService : VpnService
                 global::Android.Util.Log.Info("ChameleonVpn",
                     $"tun2socks запущен (fd={tunFd} → SOCKS {VpnEngine.SocksPort})");
                 global::Chameleon.Mobile.Vpn.Report(VpnStatus.Connected);
-                _ = Task.Run(FetchIpAsync); // внешний IP через наш SOCKS
-                _statsTimer = new System.Threading.Timer(_ =>
+                _ = Task.Run(FetchIpAsync);
+                _statsTimer = new Timer(_ =>
                 {
                     try
                     {
                         if (_engine is { } en)
                             global::Chameleon.Mobile.Vpn.ReportStats(
-                                new global::Chameleon.Mobile.VpnStats(en.BytesUp, en.BytesDown, en.RttMs));
+                                new VpnStats(en.BytesUp, en.BytesDown, en.RttMs));
                     }
                     catch
                     {
@@ -110,29 +112,143 @@ public sealed class ChameleonVpnService : VpnService
 
     private void EstablishTun()
     {
+        var cfg = LoadRouting();
+
         var builder = new Builder(this)
             .SetSession("Chameleon")
             .SetMtu(8500)
             .AddAddress("10.0.0.2", 24)
             .AddDnsServer("1.1.1.1")
-            .AddDnsServer("9.9.9.9")
-            .AddDnsServer("8.8.8.8")
-            .AddRoute("0.0.0.0", 0);
-        
-        try
+            .AddDnsServer("8.8.8.8");
+
+        var excludes = CollectExcludes(cfg);
+        if (excludes.Count == 0)
         {
-            if (PackageName is not null) builder.AddDisallowedApplication(PackageName);
+            builder.AddRoute("0.0.0.0", 0);
         }
-        catch
+        else if ((int)Build.VERSION.SdkInt >= (int)BuildVersionCodes.Tiramisu)
         {
-            // ignored
+            builder.AddRoute("0.0.0.0", 0);
+            foreach (var (ip, pfx) in excludes)
+            {
+                try
+                {
+                    builder.ExcludeRoute(new IpPrefix(global::Java.Net.InetAddress.GetByName(ip)!, pfx));
+                }
+                catch (Exception e)
+                {
+                    global::Android.Util.Log.Warn("ChameleonVpn", "excludeRoute fail " + ip + ": " + e.Message);
+                }
+            }
+        }
+        else
+        {
+            var uints = new List<(uint, int)>();
+            foreach (var (ip, pfx) in excludes) uints.Add((IpToUInt(ip), pfx));
+            foreach (var (rip, rpfx) in RouteComplement.Build(uints))
+                try
+                {
+                    builder.AddRoute(rip, rpfx);
+                }
+                catch
+                {
+                    // ignored
+                }
+        }
+
+        var self = PackageName ?? "";
+        switch (cfg.Mode)
+        {
+            case AppRouteMode.Allowed when cfg.Apps.Count > 0:
+                foreach (var pkg in cfg.Apps)
+                    try
+                    {
+                        builder.AddAllowedApplication(pkg);
+                    }
+                    catch (Exception e)
+                    {
+                        global::Android.Util.Log.Warn("ChameleonVpn", "allow " + pkg + ": " + e.Message);
+                    }
+
+                break;
+
+            case AppRouteMode.Disallowed:
+                try
+                {
+                    if (self.Length > 0) builder.AddDisallowedApplication(self);
+                }
+                catch
+                {
+                    // ignored
+                }
+
+                foreach (var pkg in cfg.Apps)
+                {
+                    if (pkg == self) continue;
+                    try
+                    {
+                        builder.AddDisallowedApplication(pkg);
+                    }
+                    catch (Exception e)
+                    {
+                        global::Android.Util.Log.Warn("ChameleonVpn", "disallow " + pkg + ": " + e.Message);
+                    }
+                }
+
+                break;
+
+            default:
+                try
+                {
+                    if (self.Length > 0) builder.AddDisallowedApplication(self);
+                }
+                catch
+                {
+                    // ignored
+                }
+
+                break;
         }
 
         _tun = builder.Establish();
         if (_tun is null)
             throw new InvalidOperationException("Establish() == null (нет разрешения VPN?)");
 
-        global::Android.Util.Log.Info("ChameleonVpn", $"TUN up, fd={_tun.Fd}");
+        global::Android.Util.Log.Info("ChameleonVpn",
+            $"TUN up, fd={_tun.Fd}, mode={cfg.Mode}, apps={cfg.Apps.Count}, excludes={excludes.Count}");
+    }
+
+    private static RoutingConfig LoadRouting()
+    {
+        try
+        {
+            return MobileProfiles.Load().Routing ?? new RoutingConfig();
+        }
+        catch
+        {
+            return new RoutingConfig();
+        }
+    }
+
+    /// <summary>Включённые IP/подсети → список (ip сети, префикс).</summary>
+    private static List<(string Ip, int Prefix)> CollectExcludes(RoutingConfig cfg)
+    {
+        var list = new List<(string, int)>();
+        foreach (var r in cfg.IpRules)
+        {
+            if (!r.Enabled) continue;
+            if (RouteRule.Classify(r.Value, out var net, out int prefix) != RouteRule.RuleKind.Invalid &&
+                net is not null)
+                list.Add((net.ToString(), prefix));
+        }
+
+        return list;
+    }
+
+    private static uint IpToUInt(string ip)
+    {
+        var b = IPAddress.Parse(ip).GetAddressBytes();
+        return ((uint)b[0] << 24) | ((uint)b[1] << 16) | ((uint)b[2] << 8) | b[3];
     }
 
     /// <summary>Получить внешний IP через наш SOCKS (как на десктопе) и сообщить в UI.</summary>
@@ -146,7 +262,7 @@ public sealed class ChameleonVpnService : VpnService
                 UseProxy = true,
             };
             using var http = new System.Net.Http.HttpClient(handler) { Timeout = TimeSpan.FromSeconds(12) };
-            string ip = (await http.GetStringAsync("https://api.ipify.org").ConfigureAwait(false)).Trim();
+            var ip = (await http.GetStringAsync("https://api.ipify.org").ConfigureAwait(false)).Trim();
             global::Chameleon.Mobile.Vpn.ReportIp(string.IsNullOrWhiteSpace(ip) ? "-" : ip);
         }
         catch
@@ -195,7 +311,7 @@ public sealed class ChameleonVpnService : VpnService
 
             _tunFd = -1;
         }
-
+        
         try
         {
             _tun2socks?.Join(1500);
@@ -234,7 +350,7 @@ public sealed class ChameleonVpnService : VpnService
         }
 
         _tun = null;
-        
+
         try
         {
             StopForeground(StopForegroundFlags.Remove);

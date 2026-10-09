@@ -60,6 +60,7 @@ public sealed class MobileProfiles
     public List<MobileProfile> Profiles { get; set; } = [];
     public int ActiveIndex { get; set; } = -1;
     public bool AutoConnect { get; set; }
+    public RoutingConfig Routing { get; set; } = new();
 
     private static string Path =>
         System.IO.Path.Combine(

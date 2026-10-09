@@ -1,0 +1,155 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Chameleon.Mobile.ViewModels"
+             xmlns:m="using:Chameleon.Mobile"
+             x:Class="Chameleon.Mobile.Views.RoutingPage"
+             x:DataType="vm:RoutingPageViewModel">
+    <UserControl.Resources>
+        <StreamGeometry x:Key="IconRoute">M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z</StreamGeometry>
+        <StreamGeometry x:Key="IconSearch">M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z</StreamGeometry>
+        <StreamGeometry x:Key="IconPlus">M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z</StreamGeometry>
+        <StreamGeometry x:Key="IconTrash">M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z</StreamGeometry>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <Style Selector="Button.seg">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#8B949E" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="0,9" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.seg.active">
+            <Setter Property="Background" Value="#238636" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBox.fld">
+            <Setter Property="Foreground" Value="#E6EDF3" />
+            <Setter Property="Background" Value="#0D1117" />
+            <Setter Property="BorderBrush" Value="#30363D" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="10,9" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="TextBlock.section">
+            <Setter Property="Foreground" Value="#8B949E" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="20,40,20,14">
+
+        <!-- Заголовок -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
+            <PathIcon Data="{StaticResource IconRoute}" Width="22" Height="22" Foreground="#58A6FF"
+                      VerticalAlignment="Center" />
+            <TextBlock Text="Маршрутизация" FontSize="24" FontWeight="Bold" Foreground="#E6EDF3"
+                       VerticalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Spacing="6" Margin="0,16,0,0">
+            <TextBlock Classes="section" Text="ПРИЛОЖЕНИЯ" />
+            <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="10" Padding="4">
+                <Grid ColumnDefinitions="*,*,*">
+                    <Button Grid.Column="0" Classes="seg" Classes.active="{Binding IsAll}"
+                            Command="{Binding SetModeCommand}" CommandParameter="0" Content="Все" />
+                    <Button Grid.Column="1" Classes="seg" Classes.active="{Binding IsAllowed}"
+                            Command="{Binding SetModeCommand}" CommandParameter="1" Content="Только выбр." />
+                    <Button Grid.Column="2" Classes="seg" Classes.active="{Binding IsDisallowed}"
+                            Command="{Binding SetModeCommand}" CommandParameter="2" Content="Кроме выбр." />
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <Grid Grid.Row="2" Margin="0,12,0,0" RowDefinitions="Auto,*">
+
+            <Border Grid.Row="0" IsVisible="{Binding AppsVisible}" Background="#0D1117" BorderBrush="#30363D"
+                    BorderThickness="1" CornerRadius="8" Padding="10,0" Margin="0,0,0,10">
+                <Grid ColumnDefinitions="Auto,*">
+                    <PathIcon Grid.Column="0" Data="{StaticResource IconSearch}" Width="16" Height="16"
+                              Foreground="#8B949E" VerticalAlignment="Center" />
+                    <TextBox Grid.Column="1" Text="{Binding Search}" PlaceholderText="Поиск приложения"
+                             Background="Transparent" BorderThickness="0" Foreground="#E6EDF3" FontSize="13"
+                             VerticalContentAlignment="Center" MinHeight="40" />
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1" IsVisible="{Binding !AppsVisible}" Background="#161B22" BorderBrush="#30363D"
+                    BorderThickness="1" CornerRadius="12" Padding="18" VerticalAlignment="Top">
+                <TextBlock Foreground="#8B949E" FontSize="13" TextWrapping="Wrap"
+                           Text="Весь трафик идёт через VPN. Выберите «Только выбранные» или «Кроме выбранных», чтобы настроить приложения." />
+            </Border>
+
+            <TextBlock Grid.Row="1" IsVisible="{Binding LoadingApps}" Text="Загрузка приложений…"
+                       Foreground="#8B949E" FontSize="13" HorizontalAlignment="Center" Margin="0,16,0,0" />
+
+            <ListBox Grid.Row="1" ItemsSource="{Binding Apps}" Background="Transparent"
+                     BorderThickness="0" Padding="0" IsVisible="{Binding AppsListVisible}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="vm:AppRow">
+                        <Grid ColumnDefinitions="Auto,*,Auto" Height="48">
+                            <Image Grid.Column="0" Source="{Binding Icon}" Width="30" Height="30"
+                                   VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Label}" Foreground="#E6EDF3" FontSize="14"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Package}" Foreground="#8B949E" FontSize="10"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <CheckBox Grid.Column="2" IsChecked="{Binding IsChecked}" VerticalAlignment="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+
+        <StackPanel Grid.Row="3" Spacing="8" Margin="0,14,0,0">
+            <TextBlock Classes="section" Text="IP И ПОДСЕТИ МИМО VPN" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBox Grid.Column="0" Classes="fld" Text="{Binding NewIp}" PlaceholderText="1.2.3.4 или 10.0.0.0/8" />
+                <Button Grid.Column="1" Command="{Binding AddIpCommand}"
+                        Background="#21262D" Foreground="#E6EDF3" CornerRadius="8" Padding="12,9">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Data="{StaticResource IconPlus}" Width="15" Height="15" Foreground="#E6EDF3"
+                                  VerticalAlignment="Center" />
+                        <TextBlock Text="Добавить" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <ScrollViewer MaxHeight="150">
+                <ItemsControl ItemsSource="{Binding IpRules}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="m:RouteRule">
+                            <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1"
+                                    CornerRadius="8" Padding="10,7" Margin="0,0,0,6">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" VerticalAlignment="Center"
+                                              Margin="0,0,8,0" />
+                                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Value}" Foreground="#E6EDF3" FontSize="13"
+                                                   FontFamily="Consolas,monospace" />
+                                        <TextBlock Text="{Binding KindLabel}" Foreground="#8B949E" FontSize="10" />
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Background="Transparent" CornerRadius="8" Padding="6"
+                                            Command="{Binding $parent[ItemsControl].((vm:RoutingPageViewModel)DataContext).RemoveIpCommand}"
+                                            CommandParameter="{Binding}">
+                                        <PathIcon Data="{StaticResource IconTrash}" Width="16" Height="16"
+                                                  Foreground="#F85149" />
+                                    </Button>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <TextBlock Text="{Binding Hint}" FontSize="12" Foreground="#8B949E" TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</UserControl>
