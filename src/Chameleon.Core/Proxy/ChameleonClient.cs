@@ -40,6 +40,15 @@ public sealed class ChameleonClient : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        try
+        {
+            socket.NoDelay = true;
+        }
+        catch
+        {
+            // ignored
+        }
+
         await socket.ConnectAsync(serverEndPoint, cancellationToken).ConfigureAwait(false);
         Stream stream = carrier is null
             ? new NetworkStream(socket, ownsSocket: true)
@@ -79,6 +88,15 @@ public sealed class ChameleonClient : IAsyncDisposable
         CarrierWrapper? carrier, CancellationToken cancellationToken)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        try
+        {
+            socket.NoDelay = true;
+        }
+        catch
+        {
+            // ignored
+        }
+
         await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
         Stream stream = carrier is null
             ? new NetworkStream(socket, ownsSocket: true)
@@ -117,6 +135,15 @@ public sealed class ChameleonClient : IAsyncDisposable
             catch (ObjectDisposedException)
             {
                 break;
+            }
+
+            try
+            {
+                socket.NoDelay = true;
+            }
+            catch
+            {
+                // ignored
             }
 
             _ = HandleSocksAsync(socket, cancellationToken);

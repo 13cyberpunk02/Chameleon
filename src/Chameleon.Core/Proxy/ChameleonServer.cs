@@ -90,6 +90,15 @@ public sealed class ChameleonServer : IAsyncDisposable
                 break;
             }
 
+            try
+            {
+                socket.NoDelay = true;
+            }
+            catch
+            {
+                // ignored
+            }
+
             _ = HandleCarrierAsync(socket, cancellationToken);
         }
     }
@@ -104,7 +113,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             {
                 using var pre = new NetworkStream(socket, ownsSocket: false);
                 var (pp, _) = await ProxyProtocol.TryReadAsync(pre, cancellationToken).ConfigureAwait(false);
-                if (pp.Present && pp.SourceIp is not null) remoteIp = pp.SourceIp;
+                if (pp is { Present: true, SourceIp: not null }) remoteIp = pp.SourceIp;
             }
 
             carrier = _carrier is null
@@ -174,7 +183,7 @@ public sealed class ChameleonServer : IAsyncDisposable
 
         var result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
-        
+
         string clientKeyFull = Convert.ToHexString(result.RemoteStaticPublic).ToLowerInvariant();
         if (_clients is not null && !_clients.IsAllowed(clientKeyFull))
         {
@@ -318,6 +327,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         var target = new TcpClient();
         try
         {
+            target.NoDelay = true;
             await target.ConnectAsync(stream.TargetHost!, stream.TargetPort, cancellationToken).ConfigureAwait(false);
             await Relay.RunAsync(target.Client, stream, cancellationToken).ConfigureAwait(false);
         }
@@ -346,7 +356,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     }
 
     private void LogProbe(string remoteIp, string why)
-        => _events?.Add("probe", remoteIp, $"чужак/зонд → декой ({why})");
+        => _events?.Add("probe", remoteIp, $"чужак/зонд -> декой ({why})");
 
     private static string Human(long bytes)
     {
@@ -428,20 +438,17 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         var now = DateTime.UtcNow;
         var list = new List<SessionInfo>(_sessions.Count);
-        foreach (var kv in _sessions)
-        {
-            var r = kv.Value;
-            list.Add(new SessionInfo(
-                SessionId: kv.Key.ToLowerInvariant(),
-                RemoteIp: r.RemoteIp,
-                ClientKey: r.ClientKey,
-                StartedUtc: r.StartedUtc,
-                UptimeSeconds: (long)(now - r.StartedUtc).TotalSeconds,
-                BytesToClient: r.Session.BytesSent,
-                BytesFromClient: r.Session.BytesReceived,
-                Carriers: r.Session.CarrierCount,
+        list.AddRange(from kv in _sessions let r = kv.Value 
+            select new SessionInfo(
+                SessionId: kv.Key.ToLowerInvariant(), 
+                RemoteIp: r.RemoteIp, 
+                ClientKey: r.ClientKey, 
+                StartedUtc: r.StartedUtc, 
+                UptimeSeconds: (long)(now - r.StartedUtc).TotalSeconds, 
+                BytesToClient: r.Session.BytesSent, 
+                BytesFromClient: r.Session.BytesReceived, 
+                Carriers: r.Session.CarrierCount, 
                 Streams: r.Session.StreamCount));
-        }
 
         return list;
     }
