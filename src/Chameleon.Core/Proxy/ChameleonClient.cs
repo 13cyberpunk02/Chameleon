@@ -49,6 +49,16 @@ public sealed class ChameleonClient : IAsyncDisposable
             // ignored
         }
 
+        try
+        {
+            socket.ReceiveBufferSize = 1 << 22;
+            socket.SendBufferSize = 1 << 22;
+        }
+        catch
+        {
+            // ignored
+        }
+
         await socket.ConnectAsync(serverEndPoint, cancellationToken).ConfigureAwait(false);
         Stream stream = carrier is null
             ? new NetworkStream(socket, ownsSocket: true)
@@ -91,6 +101,16 @@ public sealed class ChameleonClient : IAsyncDisposable
         try
         {
             socket.NoDelay = true;
+        }
+        catch
+        {
+            // ignored
+        }
+
+        try
+        {
+            socket.ReceiveBufferSize = 1 << 22;
+            socket.SendBufferSize = 1 << 22;
         }
         catch
         {

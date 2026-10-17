@@ -14,7 +14,7 @@ public sealed partial class ConnectViewModel : PageViewModel
 
     private readonly TunnelService _tunnel = Services.Tunnel;
     private readonly ProfileStore _store = Services.Store;
-    private Timer? _statusTimer;
+    private System.Threading.Timer? _statusTimer;
     private DateTime _connectedAt;
 
     public ConnectViewModel()
@@ -23,6 +23,7 @@ public sealed partial class ConnectViewModel : PageViewModel
         ApplyStatus(_tunnel.Status);
     }
 
+    // Статус
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _statusText = "Отключено";
@@ -76,6 +77,7 @@ public sealed partial class ConnectViewModel : PageViewModel
                     ? _store.ClientPrivateKeyHex
                     : profile.ClientPrivateKeyHex,
                 ExtraCarriers = profile.ExtraCarriers,
+                NativeTls = _store.NativeTls,
             };
             ActiveProfile = profile.Display;
             await _tunnel.ConnectAsync(options);
@@ -93,7 +95,8 @@ public sealed partial class ConnectViewModel : PageViewModel
 
     private void ApplyStatus(TunnelStatus s)
     {
-        (StatusText, var color, ButtonText, IsConnected) = s switch
+        string color;
+        (StatusText, color, ButtonText, IsConnected) = s switch
         {
             TunnelStatus.Connected => ("Подключено", "#3FB950", "Отключить", true),
             TunnelStatus.Connecting => ("Подключение…", "#D29922", "Отмена", false),
@@ -111,7 +114,7 @@ public sealed partial class ConnectViewModel : PageViewModel
     private void StartStats()
     {
         _connectedAt = DateTime.Now;
-        _statusTimer ??= new System.Threading.Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStats), null,
+        _statusTimer ??= new Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStats), null,
             0, 1000);
         _ = RefreshIpAsync();
     }
@@ -141,11 +144,11 @@ public sealed partial class ConnectViewModel : PageViewModel
     {
         try
         {
-            var socks = string.IsNullOrWhiteSpace(_store.Socks) ? "127.0.0.1:1080" : _store.Socks;
+            string socks = string.IsNullOrWhiteSpace(_store.Socks) ? "127.0.0.1:1080" : _store.Socks;
             using var handler = new HttpClientHandler
                 { Proxy = new System.Net.WebProxy($"socks5://{socks}"), UseProxy = true };
             using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
-            var ip = (await http.GetStringAsync("https://api.ipify.org")).Trim();
+            string ip = (await http.GetStringAsync("https://api.ipify.org")).Trim();
             Avalonia.Threading.Dispatcher.UIThread.Post(() => PublicIp = ip);
         }
         catch

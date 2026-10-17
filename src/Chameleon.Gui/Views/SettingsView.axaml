@@ -6,7 +6,8 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="18" MaxWidth="560" HorizontalAlignment="Left">
             <TextBlock Classes="h1" Text="Настройки" />
-            
+
+            <!-- tun2socks -->
             <StackPanel Spacing="6">
                 <TextBlock Text="Путь к tun2socks" Classes="label" />
                 <Grid ColumnDefinitions="*,Auto">
@@ -16,23 +17,28 @@
                             Command="{Binding BrowseTun2SocksCommand}" />
                 </Grid>
             </StackPanel>
-            
+
+            <!-- SOCKS -->
             <StackPanel Spacing="6">
                 <TextBlock Text="Локальный SOCKS5" Classes="label" />
                 <TextBox Text="{Binding Socks}" PlaceholderText="127.0.0.1:1080" />
             </StackPanel>
-            
+
+            <!-- Уровень логов tun2socks -->
             <StackPanel Spacing="6">
                 <TextBlock Text="Уровень логов tun2socks" Classes="label" />
                 <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel, Mode=TwoWay}"
                           MinWidth="160" />
             </StackPanel>
-            
+
+            <!-- Переключатели -->
             <StackPanel Spacing="10" Margin="0,4,0,0">
                 <CheckBox Content="Авто подключение при запуске" IsChecked="{Binding AutoConnect}" />
                 <CheckBox Content="Автозапуск с Windows" IsChecked="{Binding AutoStart}"
                           IsEnabled="{Binding AutoStartSupported}"
                           ToolTip.Tip="Запускать Chameleon при входе в систему (только Windows)" />
+                <CheckBox Content="Быстрый режим (нативный TLS, без точного JA4)" IsChecked="{Binding NativeTls}"
+                          ToolTip.Tip="Нативный SslStream с AES-NI - кратно выше скорость, но ClientHello перестаёт быть точным отпечатком Chrome (заметнее для продвинутого DPI). Применяется при следующем подключении." />
             </StackPanel>
 
             <Border Classes="card" Margin="0,4,0,0">

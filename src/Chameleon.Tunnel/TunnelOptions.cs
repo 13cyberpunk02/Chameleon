@@ -3,7 +3,7 @@
 /// <summary>Настройки VPN-режима (весь трафик через TUN -> наш SOCKS5 -> сервер).</summary>
 public sealed class TunnelOptions
 {
-    /// <summary>Адрес сервера, host:port (например dl.cyberius.site:443).</summary>
+    /// <summary>Адрес сервера, host:port (например dl.example.site:443).</summary>
     public required string Server { get; init; }
 
     /// <summary>Публичный статический ключ сервера (hex).</summary>
@@ -48,6 +48,11 @@ public sealed class TunnelOptions
     /// <summary>Постоянный статический ключ клиента (hex приватной части) - идентичность
     /// для allowlist на сервере. Если пусто - генерируется случайный (аккаунты не работают).</summary>
     public string? ClientPrivateKeyHex { get; init; }
+
+    /// <summary>Быстрый режим: нативный SslStream (AES-NI) вместо BouncyCastle. Кратно выше
+    /// скорость, но ClientHello перестаёт быть точным JA4 Chrome (заметнее для DPI).
+    /// По умолчанию выключено - маскировка важнее.</summary>
+    public bool NativeTls { get; init; }
 }
 
 public enum TunnelStatus

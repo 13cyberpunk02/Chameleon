@@ -33,7 +33,7 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly ServerEventLog? _events;
 
     /// <summary>Сессия закрыта: (clientKeyHex, bytesToClient, bytesFromClient) - для учёта трафика.</summary>
-    public event Action<string, string, long, long>? SessionClosed;
+    public event Action<string, string, long, long>? SessionClosed; // (sessionId, clientKey, down, up)
 
     /// <summary>Клиент принудительно отключён политикой/вручную: (clientKeyHex, reason).</summary>
     public event Action<string, string>? ClientKicked;
@@ -99,6 +99,16 @@ public sealed class ChameleonServer : IAsyncDisposable
                 // ignored
             }
 
+            try
+            {
+                socket.ReceiveBufferSize = 1 << 22;
+                socket.SendBufferSize = 1 << 22;
+            }
+            catch
+            {
+                // ignored
+            }
+
             _ = HandleCarrierAsync(socket, cancellationToken);
         }
     }
@@ -113,7 +123,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             {
                 using var pre = new NetworkStream(socket, ownsSocket: false);
                 var (pp, _) = await ProxyProtocol.TryReadAsync(pre, cancellationToken).ConfigureAwait(false);
-                if (pp is { Present: true, SourceIp: not null }) remoteIp = pp.SourceIp;
+                if (pp.Present && pp.SourceIp is not null) remoteIp = pp.SourceIp;
             }
 
             carrier = _carrier is null
@@ -168,8 +178,10 @@ public sealed class ChameleonServer : IAsyncDisposable
     private async Task HandleNewSessionAsync(Stream carrier, byte[] prefix, int len, string remoteIp,
         CancellationToken cancellationToken)
     {
+        // Продолжаем рукопожатие Noise, скормив уже прочитанный префикс.
         byte[] message1 = await Framing.ReadExactCountAsync(carrier, len, cancellationToken).ConfigureAwait(false);
         var handshake = NoiseIkHandshake.CreateResponder(_serverStatic);
+        HandshakeResult result;
         try
         {
             handshake.ReadMessage1(message1);
@@ -181,7 +193,7 @@ public sealed class ChameleonServer : IAsyncDisposable
             return;
         }
 
-        var result = handshake.WriteMessage2(out byte[] message2);
+        result = handshake.WriteMessage2(out byte[] message2);
         await Framing.WriteFrameAsync(carrier, message2, cancellationToken).ConfigureAwait(false);
 
         string clientKeyFull = Convert.ToHexString(result.RemoteStaticPublic).ToLowerInvariant();
@@ -237,7 +249,7 @@ public sealed class ChameleonServer : IAsyncDisposable
 
         if (!_sessions.TryGetValue(sessionId, out var reg) || !CarrierJoin.Verify(reg.Secret, request))
         {
-            await carrier.DisposeAsync().ConfigureAwait(false);
+            await carrier.DisposeAsync().ConfigureAwait(false); // неизвестная сессия/плохой tag - молча
             return;
         }
 
@@ -438,17 +450,20 @@ public sealed class ChameleonServer : IAsyncDisposable
     {
         var now = DateTime.UtcNow;
         var list = new List<SessionInfo>(_sessions.Count);
-        list.AddRange(from kv in _sessions let r = kv.Value 
-            select new SessionInfo(
-                SessionId: kv.Key.ToLowerInvariant(), 
-                RemoteIp: r.RemoteIp, 
-                ClientKey: r.ClientKey, 
-                StartedUtc: r.StartedUtc, 
-                UptimeSeconds: (long)(now - r.StartedUtc).TotalSeconds, 
-                BytesToClient: r.Session.BytesSent, 
-                BytesFromClient: r.Session.BytesReceived, 
-                Carriers: r.Session.CarrierCount, 
+        foreach (var kv in _sessions)
+        {
+            var r = kv.Value;
+            list.Add(new SessionInfo(
+                SessionId: kv.Key.ToLowerInvariant(),
+                RemoteIp: r.RemoteIp,
+                ClientKey: r.ClientKey,
+                StartedUtc: r.StartedUtc,
+                UptimeSeconds: (long)(now - r.StartedUtc).TotalSeconds,
+                BytesToClient: r.Session.BytesSent,
+                BytesFromClient: r.Session.BytesReceived,
+                Carriers: r.Session.CarrierCount,
                 Streams: r.Session.StreamCount));
+        }
 
         return list;
     }

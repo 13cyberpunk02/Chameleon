@@ -1,4 +1,5 @@
-﻿// CLI VPN-режима (весь трафик через TUN). Требует прав администратора и наличия
+﻿
+// CLI VPN-режима (весь трафик через TUN). Требует прав администратора и наличия
 // tun2socks (+ wintun.dll рядом с ним на Windows). Это же ядро дёргает GUI.
 //
 //   Chameleon.Tun <server_host:port> <server_pubkey_hex> [sni] [socks]
@@ -63,6 +64,7 @@ var options = new TunnelOptions
         : (OperatingSystem.IsWindows() ? "tun2socks.exe" : "tun2socks"),
     Tun2SocksLogLevel = logLevel is { Length: > 0 } ? logLevel : "error",
     ExtraCarriers = extra,
+    NativeTls = Environment.GetEnvironmentVariable("CHAMELEON_NATIVE_TLS") is "1" or "true",
 };
 
 var service = new TunnelService();

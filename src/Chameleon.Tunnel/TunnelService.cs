@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Chameleon.Core.Crypto;
 using Chameleon.Core.Proxy;
+using Chameleon.Core.Transport;
 using Chameleon.Tls;
 
 namespace Chameleon.Tunnel;
@@ -29,7 +30,7 @@ public sealed class TunnelService : IAsyncDisposable
     private bool _hostRouteAdded, _defaultRouteAdded;
     private string? _gatewayIp;
     private int _gatewayIfIndex;
-    private readonly List<(string Network, int Prefix)> _bypassAdded = new();
+    private readonly List<(string Network, int Prefix)> _bypassAdded = [];
     private IPEndPoint? _serverEndpoint, _socksEndpoint;
     private Task? _watchdog;
     private CancellationTokenSource? _watchdogCts;
@@ -67,24 +68,24 @@ public sealed class TunnelService : IAsyncDisposable
             _serverEndpoint = await ResolveAsync(options.Server, ct).ConfigureAwait(false);
             _serverIp = _serverEndpoint.Address.ToString();
             _socksEndpoint = ParseLocal(options.SocksListen);
-            
+
             _client = await StartClientAsync(options, _serverEndpoint, _socksEndpoint, ct).ConfigureAwait(false);
             Info($"клиент поднят, SOCKS5 на {_client.SocksEndPoint}, несущих: {_client.CarrierCount}");
-            
+
             var (gateway, ifIndex) = await _net.GetDefaultRouteAsync(ct).ConfigureAwait(false);
             _gatewayIp = gateway;
             _gatewayIfIndex = ifIndex;
             Info($"текущий шлюз: {gateway} (if {ifIndex})");
             await _net.AddHostRouteAsync(_serverIp, gateway, ifIndex, ct).ConfigureAwait(false);
             _hostRouteAdded = true;
-            
+
             string device = OperatingSystem.IsWindows() ? options.TunDeviceName : $"tun://{options.TunDeviceName}";
             string proxy = $"socks5://{_socksEndpoint!.Address}:{_socksEndpoint.Port}";
             _tun2socks = ProcessRunner.Start(exe,
                 $"--device {device} --proxy {proxy} --loglevel {options.Tun2SocksLogLevel}", m => Log?.Invoke(this, m),
                 workDir);
             int tunIndex = await WaitForTunAsync(options.TunDeviceName, ct).ConfigureAwait(false);
-            
+
             await _net.ConfigureTunAsync(options, tunIndex, ct).ConfigureAwait(false);
             await _net.AddDefaultViaTunAsync(options, ct).ConfigureAwait(false);
             _defaultRouteAdded = true;
@@ -263,10 +264,12 @@ public sealed class TunnelService : IAsyncDisposable
         KeyPair clientKey = options.ClientPrivateKeyHex is { Length: > 0 } hex
             ? new KeyPair(Convert.FromHexString(hex), X25519.ScalarMultBase(Convert.FromHexString(hex)))
             : X25519.GenerateKeyPair();
+        CarrierWrapper carrier = options.NativeTls
+            ? TlsCarrier.Client(options.Sni)
+            : BcTlsCarrier.Client(options.Sni);
         return await ChameleonClient.StartAsync(
                 serverEndpoint, clientKey, Convert.FromHexString(options.ServerPublicKeyHex),
-                socksEndpoint, carrier: BcTlsCarrier.Client(options.Sni), extraCarrierEndpoints: extras,
-                cancellationToken: ct)
+                socksEndpoint, carrier: carrier, extraCarrierEndpoints: extras, cancellationToken: ct)
             .ConfigureAwait(false);
     }
 
@@ -279,7 +282,7 @@ public sealed class TunnelService : IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
-            var client = _client;
+            ChameleonClient? client = _client;
             if (client is null) return;
 
             try
@@ -354,7 +357,7 @@ public sealed class TunnelService : IAsyncDisposable
     private async Task<int> WaitForTunAsync(string name, CancellationToken ct)
     {
         bool requireUp = OperatingSystem.IsWindows();
-        for (int i = 0; i < 100; i++) // до ~10 c
+        for (int i = 0; i < 100; i++)
         {
             var ni = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
                 .FirstOrDefault(n => n.Name.Equals(name, StringComparison.OrdinalIgnoreCase));

@@ -21,6 +21,7 @@ public sealed partial class SettingsViewModel : PageViewModel
     [ObservableProperty] private string _logLevel;
     [ObservableProperty] private bool _autoConnect;
     [ObservableProperty] private bool _autoStart;
+    [ObservableProperty] private bool _nativeTls;
     [ObservableProperty] private string _hint = "";
 
     /// <summary>Публичный ключ этого клиента (передать администратору сервера для allowlist).</summary>
@@ -28,7 +29,7 @@ public sealed partial class SettingsViewModel : PageViewModel
 
     public Func<string, Task>? SetClipboard { get; set; }
 
-    public string[] LogLevels { get; } = { "error", "warn", "info", "debug", "silent" };
+    public string[] LogLevels { get; } = ["error", "warn", "info", "debug", "silent"];
 
     public SettingsViewModel()
     {
@@ -37,6 +38,7 @@ public sealed partial class SettingsViewModel : PageViewModel
         _logLevel = string.IsNullOrWhiteSpace(_store.LogLevel) ? "error" : _store.LogLevel;
         _autoConnect = _store.AutoConnect;
         _autoStart = AutoStartManager.IsEnabled();
+        _nativeTls = _store.NativeTls;
 
         if (string.IsNullOrWhiteSpace(_tun2SocksPath))
         {
@@ -90,6 +92,15 @@ public sealed partial class SettingsViewModel : PageViewModel
     {
         _store.AutoConnect = value;
         _store.Save();
+    }
+
+    partial void OnNativeTlsChanged(bool value)
+    {
+        _store.NativeTls = value;
+        _store.Save();
+        Hint = value
+            ? "Быстрый режим: нативный TLS (AES-NI). Выше скорость, но без точного JA4 Chrome."
+            : "Маскировка: BouncyCastle (точный JA4 Chrome). Применится при следующем подключении.";
     }
 
     partial void OnAutoStartChanged(bool value)
