@@ -10,15 +10,34 @@
                    Margin="0,0,0,14" />
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,12">
-            <Button Classes="accent" Content="➕  Добавить из ссылки" Command="{Binding AddFromLinkCommand}"
-                    ToolTip.Tip="Взять chameleon://... из буфера обмена" />
-            <Button Content="🔗  Скопировать ссылку" Command="{Binding CopyLinkCommand}" />
-            <Button Classes="danger" Content="🗑  Удалить" Command="{Binding RemoveCommand}" />
+            <Button Classes="accent" Command="{Binding AddFromLinkCommand}"
+                    ToolTip.Tip="Взять chameleon://... из буфера обмена">
+                <StackPanel Orientation="Horizontal">
+                    <PathIcon Classes="btn" Data="{StaticResource IconPlus}" />
+                    <TextBlock Text="Добавить из ссылки" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <Button Command="{Binding CopyLinkCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <PathIcon Classes="btn" Data="{StaticResource IconLink}" />
+                    <TextBlock Text="Скопировать ссылку" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <Button Classes="danger" Command="{Binding RemoveCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <PathIcon Classes="btn" Data="{StaticResource IconTrash}" />
+                    <TextBlock Text="{Binding RemoveText}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
         </StackPanel>
 
         <TextBlock DockPanel.Dock="Bottom" Classes="subtitle" Text="{Binding Hint}" Margin="0,10,0,0" />
 
         <Border Classes="card" Padding="4">
+            <Panel>
+            <TextBlock Classes="subtitle" IsVisible="{Binding IsEmpty}" TextAlignment="Center"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="380"
+                       Text="Серверов пока нет. Скопируйте ссылку chameleon://… от администратора сервера и нажмите «Добавить из ссылки»." />
             <ListBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding Selected, Mode=TwoWay}"
                      Background="Transparent">
                 <ListBox.ItemTemplate>
@@ -34,6 +53,7 @@
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+            </Panel>
         </Border>
     </DockPanel>
 </UserControl>

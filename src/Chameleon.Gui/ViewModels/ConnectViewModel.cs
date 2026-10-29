@@ -10,17 +10,20 @@ namespace Chameleon.Gui.ViewModels;
 public sealed partial class ConnectViewModel : PageViewModel
 {
     public override string Title => "Подключение";
-    public override string Icon => "🔌";
+    public override Geometry Icon => PageIcons.Power;
 
     private readonly TunnelService _tunnel = Services.Tunnel;
     private readonly ProfileStore _store = Services.Store;
     private System.Threading.Timer? _statusTimer;
     private DateTime _connectedAt;
+    private TunnelStatus _lastStatus = TunnelStatus.Disconnected;
+    private CancellationTokenSource? _connectCts;
 
     public ConnectViewModel()
     {
         _tunnel.StatusChanged += (_, s) => Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyStatus(s));
         ApplyStatus(_tunnel.Status);
+        RefreshProfile();
     }
 
     // Статус
@@ -29,6 +32,25 @@ public sealed partial class ConnectViewModel : PageViewModel
     [ObservableProperty] private string _statusText = "Отключено";
     [ObservableProperty] private IBrush _statusColor = Brush.Parse("#8B949E");
     [ObservableProperty] private string _buttonText = "Подключить";
+    [ObservableProperty] private string _errorText = "";
+
+    public Geometry PowerIcon => PageIcons.Power;
+
+    protected override void OnActivated() => RefreshProfile();
+
+    /// <summary>Имя выбранного профиля. Раньше показывалось «профиль не выбран», пока не нажмёшь кнопку.</summary>
+    private void RefreshProfile()
+    {
+        if (IsConnected || IsBusy) return;
+        ActiveProfile = _store.Selected?.Display ?? "Сервер не выбран - добавьте его на вкладке «Серверы»";
+    }
+
+    /// <summary>Автоподключение при запуске (настройка «Авто подключение при запуске»).</summary>
+    public void ConnectOnStartup()
+    {
+        if (_store.Selected is null || IsConnected || IsBusy) return;
+        ToggleCommand.Execute(null);
+    }
 
     // Статистика
     [ObservableProperty] private string _publicIp = "-";
@@ -37,13 +59,21 @@ public sealed partial class ConnectViewModel : PageViewModel
     [ObservableProperty] private string _trafficDown = "-";
     [ObservableProperty] private string _uptime = "-";
     [ObservableProperty] private string _carriers = "-";
-    [ObservableProperty] private string _activeProfile = "профиль не выбран";
+    [ObservableProperty] private string _activeProfile = "";
 
-    private bool CanToggle => !IsBusy;
-
-    [RelayCommand(CanExecute = nameof(CanToggle))]
+    /// <summary>
+    /// Одна кнопка на три действия: подключить / отменить идущее подключение / отключить.
+    /// Раньше на время подключения команда блокировалась, и «Отмена» не нажималась.
+    /// </summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task ToggleAsync()
     {
+        if (IsBusy)
+        {
+            _connectCts?.Cancel();
+            return;
+        }
+
         if (IsConnected)
         {
             await _tunnel.DisconnectAsync();
@@ -54,12 +84,14 @@ public sealed partial class ConnectViewModel : PageViewModel
         if (profile is null || string.IsNullOrWhiteSpace(profile.Server) ||
             string.IsNullOrWhiteSpace(profile.ServerPublicKeyHex))
         {
-            StatusText = "Выберите сервер на вкладке «Серверы»";
+            ErrorText = "Выберите сервер на вкладке «Серверы»";
             return;
         }
 
         IsBusy = true;
-        ToggleCommand.NotifyCanExecuteChanged();
+        ErrorText = "";
+        using var cts = new CancellationTokenSource();
+        _connectCts = cts;
         try
         {
             var options = new TunnelOptions
@@ -68,8 +100,10 @@ public sealed partial class ConnectViewModel : PageViewModel
                 ServerPublicKeyHex = profile.ServerPublicKeyHex,
                 Sni = string.IsNullOrWhiteSpace(profile.Sni) ? profile.Server.Split(':')[0] : profile.Sni,
                 SocksListen = string.IsNullOrWhiteSpace(_store.Socks) ? "127.0.0.1:1080" : _store.Socks,
+                // Пустой путь - ищем рядом с программой/в PATH, а не в текущей папке
+                // (при автозапуске это System32).
                 Tun2SocksPath = string.IsNullOrWhiteSpace(_store.Tun2SocksPath)
-                    ? (OperatingSystem.IsWindows() ? "tun2socks.exe" : "tun2socks")
+                    ? Tun2SocksLocator.Find() ?? (OperatingSystem.IsWindows() ? "tun2socks.exe" : "tun2socks")
                     : _store.Tun2SocksPath,
                 Tun2SocksLogLevel = string.IsNullOrWhiteSpace(_store.LogLevel) ? "error" : _store.LogLevel,
                 BypassRules = _store.BypassRules,
@@ -80,16 +114,17 @@ public sealed partial class ConnectViewModel : PageViewModel
                 NativeTls = _store.NativeTls,
             };
             ActiveProfile = profile.Display;
-            await _tunnel.ConnectAsync(options);
+            await _tunnel.ConnectAsync(options, cts.Token);
         }
         catch (Exception)
         {
-            /* статус придёт через StatusChanged (Error) */
+            /* статус придёт через StatusChanged (Error/Disconnected), причина - в LastError */
         }
         finally
         {
+            _connectCts = null;
             IsBusy = false;
-            ToggleCommand.NotifyCanExecuteChanged();
+            RefreshProfile();
         }
     }
 
@@ -105,15 +140,18 @@ public sealed partial class ConnectViewModel : PageViewModel
             _ => ("Отключено", "#8B949E", "Подключить", false),
         };
         StatusColor = Brush.Parse(color);
-        ToggleCommand.NotifyCanExecuteChanged();
+        ErrorText = s == TunnelStatus.Error ? _tunnel.LastError ?? "Подробности - на вкладке «Логи»" : "";
+        if (!IsConnected) RefreshProfile();
 
-        if (s == TunnelStatus.Connected) StartStats();
+        // Переподключение - продолжение той же сессии: время не сбрасываем.
+        if (s == TunnelStatus.Connected) StartStats(resetUptime: _lastStatus != TunnelStatus.Reconnecting);
         else if (s is TunnelStatus.Disconnected or TunnelStatus.Error) StopStats();
+        _lastStatus = s;
     }
 
-    private void StartStats()
+    private void StartStats(bool resetUptime)
     {
-        _connectedAt = DateTime.Now;
+        if (resetUptime) _connectedAt = DateTime.Now;
         _statusTimer ??= new Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStats), null,
             0, 1000);
         _ = RefreshIpAsync();

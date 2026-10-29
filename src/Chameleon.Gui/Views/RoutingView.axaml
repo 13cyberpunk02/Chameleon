@@ -13,23 +13,39 @@
         <Grid DockPanel.Dock="Top" ColumnDefinitions="*,*,Auto" ColumnSpacing="8" Margin="0,0,0,12">
             <TextBox Grid.Column="0" Text="{Binding NewValue}" PlaceholderText="IP / 10.0.0.0/8 / ssh.example.com" />
             <TextBox Grid.Column="1" Text="{Binding NewNote}" PlaceholderText="заметка (необязательно)" />
-            <Button Grid.Column="2" Classes="accent" Content="➕  Добавить" Command="{Binding AddCommand}" />
+            <Button Grid.Column="2" Classes="accent" Command="{Binding AddCommand}" IsDefault="True">
+                <StackPanel Orientation="Horizontal">
+                    <PathIcon Classes="btn" Data="{StaticResource IconPlus}" />
+                    <TextBlock Text="Добавить" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
         </Grid>
 
         <TextBlock DockPanel.Dock="Bottom" Classes="subtitle" Text="{Binding Hint}" Margin="0,10,0,0" />
 
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
-            <Button Classes="danger" Content="🗑  Удалить выбранное" Command="{Binding RemoveCommand}" />
+            <Button Classes="danger" Command="{Binding RemoveCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <PathIcon Classes="btn" Data="{StaticResource IconTrash}" />
+                    <TextBlock Text="Удалить выбранное" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
         </StackPanel>
 
         <!-- Список правил -->
         <Border Classes="card" Padding="4">
+            <Panel>
+            <TextBlock Classes="subtitle" IsVisible="{Binding IsEmpty}" TextAlignment="Center"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="380"
+                       Text="Исключений нет - весь трафик идёт через туннель. Добавьте IP, подсеть или домен выше, чтобы пустить его напрямую." />
             <ListBox ItemsSource="{Binding Rules}" SelectedItem="{Binding Selected, Mode=TwoWay}"
                      Background="Transparent">
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="tun:BypassRule">
                         <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,8">
                             <CheckBox Grid.Column="0" IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                      Command="{Binding $parent[UserControl].((vm:RoutingViewModel)DataContext).ToggleCommand}"
+                                      CommandParameter="{Binding}"
                                       VerticalAlignment="Center" Margin="0,0,10,0" />
                             <StackPanel Grid.Column="1" Spacing="2">
                                 <TextBlock Text="{Binding Value}" FontSize="15" FontWeight="SemiBold" />
@@ -44,6 +60,7 @@
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+            </Panel>
         </Border>
     </DockPanel>
 </UserControl>

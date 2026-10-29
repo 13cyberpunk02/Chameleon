@@ -26,10 +26,34 @@
       <SolidColorBrush x:Key="AccentPressedBrush" Color="{StaticResource AccentColorPressed}"/>
       <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}"/>
       <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedColor}"/>
-      <SolidColorBrush x:Key="CardBrush" Color="#14FFFFFF"/>
-      <SolidColorBrush x:Key="SidebarBrush" Color="#10000000"/>
       <SolidColorBrush x:Key="HoverOverlay" Color="#1A808080"/>
       <SolidColorBrush x:Key="ActiveOverlay" Color="#333FB950"/>
+
+      <!-- Цвета, зависящие от темы. Приложение следует теме Windows; раньше карточки и
+           кнопка были полупрозрачно-белыми и в светлой теме сливались с фоном. -->
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="CardBrush" Color="#14FFFFFF"/>
+          <SolidColorBrush x:Key="CardBorderBrush" Color="#1FFFFFFF"/>
+          <SolidColorBrush x:Key="SidebarBrush" Color="#0CFFFFFF"/>
+          <SolidColorBrush x:Key="PowerButtonBrush" Color="#12FFFFFF"/>
+          <SolidColorBrush x:Key="LogBrush" Color="#33000000"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="CardBrush" Color="#F6F8FA"/>
+          <SolidColorBrush x:Key="CardBorderBrush" Color="#D0D7DE"/>
+          <SolidColorBrush x:Key="SidebarBrush" Color="#F3F4F6"/>
+          <SolidColorBrush x:Key="PowerButtonBrush" Color="#F6F8FA"/>
+          <SolidColorBrush x:Key="LogBrush" Color="#F6F8FA"/>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+
+      <!-- Значки кнопок (Material Design Icons, 24×24) -->
+      <StreamGeometry x:Key="IconPlus">M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z</StreamGeometry>
+      <StreamGeometry x:Key="IconLink">M10.59,13.41C11,13.8 11,14.44 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C7.22,12.88 7.22,9.71 9.17,7.76L12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.59,9.17C9.41,10.34 9.41,12.24 10.59,13.41M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.78,11.12 16.78,14.29 14.83,16.24L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L13.41,14.83C14.59,13.66 14.59,11.76 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z</StreamGeometry>
+      <StreamGeometry x:Key="IconTrash">M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z</StreamGeometry>
+      <StreamGeometry x:Key="IconCopy">M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z</StreamGeometry>
+      <StreamGeometry x:Key="IconSweep">M15,16H19V18H15V16M15,8H22V10H15V8M15,12H21V14H15V12M3,18A2,2 0 0,0 5,20H11A2,2 0 0,0 13,18V8H3V18M14,5H11L10,4H6L5,5H2V7H14V5Z</StreamGeometry>
     </ResourceDictionary>
   </Application.Resources>
 
@@ -76,9 +100,42 @@
     </Style>
 
     <Style Selector="Border.card">
-      <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CornerRadius" Value="12"/>
       <Setter Property="Padding" Value="18"/>
+    </Style>
+
+    <!-- Значок + текст в кнопке -->
+    <Style Selector="PathIcon.btn">
+      <Setter Property="Width" Value="16"/>
+      <Setter Property="Height" Value="16"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.danger PathIcon">
+      <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+    </Style>
+    <Style Selector="Button:disabled PathIcon">
+      <Setter Property="Opacity" Value="0.4"/>
+    </Style>
+
+    <!-- Выделение в списках: мягкая подсветка вместо сплошного акцента, на котором
+         серый текст (адрес, SNI) было почти не прочитать. -->
+    <Style Selector="ListBoxItem">
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Margin" Value="0,1"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource ActiveOverlay}"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource ActiveOverlay}"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
     </Style>
 
     <Style Selector="TextBlock.h1">

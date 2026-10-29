@@ -9,7 +9,7 @@
 
     <Grid ColumnDefinitions="220,*">
 
-        <Border Grid.Column="0" Background="#0C000000">
+        <Border Grid.Column="0" Background="{DynamicResource SidebarBrush}">
             <DockPanel Margin="0,14">
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="18,4,0,16" Spacing="10">
                     <svg:Svg Path="avares://Chameleon.Gui/Assets/chameleon-shield.svg" Width="28" Height="28"/>
@@ -23,7 +23,8 @@
                                     Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).NavigateCommand}"
                                     CommandParameter="{Binding}">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <TextBlock Text="{Binding Icon}" FontSize="16" Width="22" TextAlignment="Center"/>
+                                    <PathIcon Data="{Binding Icon}" Width="18" Height="18"
+                                              VerticalAlignment="Center"/>
                                     <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
@@ -33,7 +34,7 @@
             </DockPanel>
         </Border>
 
-        <!-- Контент активной страницы (со скроллом, чтобы не растягивать окно) -->
+        <!-- Контент активной страницы -->
         <ContentControl Grid.Column="1" Margin="24" Content="{Binding Current}"/>
     </Grid>
 </Window>

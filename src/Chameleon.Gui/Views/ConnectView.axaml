@@ -11,19 +11,25 @@
         <Button Command="{Binding ToggleCommand}"
                 Width="180" Height="180" CornerRadius="90"
                 HorizontalAlignment="Center"
-                Background="#12FFFFFF" BorderBrush="{Binding StatusColor}" BorderThickness="4"
-                Cursor="Hand">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="6">
-                <TextBlock Text="⏻" FontSize="52" HorizontalAlignment="Center"
-                           Foreground="{Binding StatusColor}" />
+                Background="{DynamicResource PowerButtonBrush}" BorderBrush="{Binding StatusColor}"
+                BorderThickness="4" Cursor="Hand">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+                <!-- Векторный значок: символ ⏻ в шрифтах Windows 10 отсутствует и рисовался «квадратиками» -->
+                <PathIcon Data="{Binding PowerIcon}" Width="54" Height="54" HorizontalAlignment="Center"
+                          Foreground="{Binding StatusColor}" />
                 <TextBlock Text="{Binding ButtonText}" FontSize="15" HorizontalAlignment="Center" />
             </StackPanel>
         </Button>
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-            <Ellipse Width="10" Height="10" VerticalAlignment="Center" Fill="{Binding StatusColor}" />
-            <TextBlock Text="{Binding StatusText}" FontSize="16" FontWeight="SemiBold"
-                       Foreground="{Binding StatusColor}" />
+        <StackPanel Spacing="6" HorizontalAlignment="Center">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                <Ellipse Width="10" Height="10" VerticalAlignment="Center" Fill="{Binding StatusColor}" />
+                <TextBlock Text="{Binding StatusText}" FontSize="16" FontWeight="SemiBold"
+                           Foreground="{Binding StatusColor}" />
+            </StackPanel>
+            <TextBlock Text="{Binding ErrorText}" Classes="subtitle" MaxWidth="420" TextAlignment="Center"
+                       HorizontalAlignment="Center"
+                       IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
 
         <Border Classes="card" IsVisible="{Binding IsConnected}" MinWidth="360">

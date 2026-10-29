@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Media;
 using Chameleon.Gui.Common;
 using Chameleon.Tunnel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -10,11 +11,13 @@ namespace Chameleon.Gui.ViewModels;
 public sealed partial class RoutingViewModel : PageViewModel
 {
     public override string Title => "Маршрутизация";
-    public override string Icon => "🔀";
+    public override Geometry Icon => PageIcons.Routing;
 
     private readonly ProfileStore _store = Services.Store;
 
     public ObservableCollection<BypassRule> Rules { get; } = new();
+
+    public bool IsEmpty => Rules.Count == 0;
 
     [ObservableProperty] private string _newValue = "";
     [ObservableProperty] private string _newNote = "";
@@ -24,6 +27,7 @@ public sealed partial class RoutingViewModel : PageViewModel
     public RoutingViewModel()
     {
         foreach (var r in _store.BypassRules) Rules.Add(r);
+        Rules.CollectionChanged += (_, _) => OnPropertyChanged(nameof(IsEmpty));
     }
 
     [RelayCommand]
@@ -59,11 +63,14 @@ public sealed partial class RoutingViewModel : PageViewModel
         Hint = $"Удалено: {v}";
     }
 
-    /// <summary>Вкл/выкл правило (вызывается из UI). Применится при следующем подключении.</summary>
-    public void Toggle(BypassRule rule)
+    /// <summary>Галочка вкл/выкл правила: сохранить. Раньше метод не был подключён к UI,
+    /// и состояние галочки терялось после перезапуска. Применится при следующем подключении.</summary>
+    [RelayCommand]
+    private void Toggle(BypassRule? rule)
     {
         _store.Save();
-        Hint = "Изменения применятся при следующем подключении";
+        if (rule is not null)
+            Hint = $"{rule.Value}: {(rule.Enabled ? "включено" : "выключено")} - применится при следующем подключении";
     }
 
     partial void OnSelectedChanged(BypassRule? value) => RemoveCommand.NotifyCanExecuteChanged();

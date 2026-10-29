@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Media;
 using Chameleon.Core.Proxy;
 using Chameleon.Gui.Common;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -10,7 +11,7 @@ namespace Chameleon.Gui.ViewModels;
 public sealed partial class ServersViewModel : PageViewModel
 {
     public override string Title => "Серверы";
-    public override string Icon => "🖥";
+    public override Geometry Icon => PageIcons.Servers;
 
     private readonly ProfileStore _store = Services.Store;
 
@@ -18,6 +19,16 @@ public sealed partial class ServersViewModel : PageViewModel
 
     [ObservableProperty] private ServerProfile? _selected;
     [ObservableProperty] private string _hint = "";
+
+    /// <summary>Первое нажатие «Удалить» только просит подтверждения (как в мобильной версии).</summary>
+    [ObservableProperty] private bool _confirmRemove;
+
+    public string RemoveText => ConfirmRemove ? "Точно удалить?" : "Удалить";
+    public bool IsEmpty => Profiles.Count == 0;
+
+    partial void OnConfirmRemoveChanged(bool value) => OnPropertyChanged(nameof(RemoveText));
+
+    protected override void OnActivated() => ConfirmRemove = false;
 
     /// <summary>Буфер обмена задаёт View (VM не зависит от Avalonia напрямую).</summary>
     public Func<Task<string?>>? GetClipboard { get; set; }
@@ -27,11 +38,13 @@ public sealed partial class ServersViewModel : PageViewModel
     public ServersViewModel()
     {
         foreach (var p in _store.Profiles) Profiles.Add(p);
+        Profiles.CollectionChanged += (_, _) => OnPropertyChanged(nameof(IsEmpty));
         Selected = _store.Selected ?? Profiles.FirstOrDefault();
     }
 
     partial void OnSelectedChanged(ServerProfile? value)
     {
+        ConfirmRemove = false;
         RemoveCommand.NotifyCanExecuteChanged();
         if (value is null) return;
         _store.SelectedIndex = Profiles.IndexOf(value);
@@ -76,6 +89,14 @@ public sealed partial class ServersViewModel : PageViewModel
     private void Remove()
     {
         if (Selected is null) return;
+        if (!ConfirmRemove)
+        {
+            ConfirmRemove = true;
+            Hint = $"Удалить «{Selected.Display}»? Нажмите ещё раз для подтверждения.";
+            return;
+        }
+
+        ConfirmRemove = false;
         string name = Selected.Display;
         int idx = Profiles.IndexOf(Selected);
         _store.Profiles.Remove(Selected);

@@ -49,6 +49,7 @@ public sealed class TunnelService : IAsyncDisposable
     {
         if (Status is TunnelStatus.Connected or TunnelStatus.Connecting) return;
         _options = options;
+        LastError = null;
         SetStatus(TunnelStatus.Connecting);
         try
         {
@@ -98,14 +99,25 @@ public sealed class TunnelService : IAsyncDisposable
             _watchdogCts = new CancellationTokenSource();
             _watchdog = Task.Run(() => WatchdogAsync(_watchdogCts.Token));
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Info("подключение отменено");
+            LastError = null;
+            await DisconnectAsync().ConfigureAwait(false);
+            throw;
+        }
         catch (Exception ex)
         {
             Info($"ошибка подключения: {ex.Message}");
+            LastError = ex.Message;
             SetStatus(TunnelStatus.Error);
             await DisconnectAsync().ConfigureAwait(false);
             throw;
         }
     }
+
+    /// <summary>Причина последней ошибки (для UI), null - ошибки не было.</summary>
+    public string? LastError { get; private set; }
 
     public async Task DisconnectAsync(CancellationToken ct = default)
     {
@@ -346,6 +358,7 @@ public sealed class TunnelService : IAsyncDisposable
             if (!ok)
             {
                 Info("переподключиться не удалось - откатываю маршруты (возвращаю прямой интернет)");
+                LastError = "Связь с сервером потеряна, переподключиться не удалось";
                 await CleanupAsync(CancellationToken.None).ConfigureAwait(false);
                 SetStatus(TunnelStatus.Error);
                 return;

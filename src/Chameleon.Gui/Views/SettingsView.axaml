@@ -34,9 +34,9 @@
             <!-- Переключатели -->
             <StackPanel Spacing="10" Margin="0,4,0,0">
                 <CheckBox Content="Авто подключение при запуске" IsChecked="{Binding AutoConnect}" />
-                <CheckBox Content="Автозапуск с Windows" IsChecked="{Binding AutoStart}"
+                <CheckBox Content="Автозапуск с Windows (сразу в трей)" IsChecked="{Binding AutoStart}"
                           IsEnabled="{Binding AutoStartSupported}"
-                          ToolTip.Tip="Запускать Chameleon при входе в систему (только Windows)" />
+                          ToolTip.Tip="Запускать Chameleon при входе в систему - через Планировщик задач, без запроса UAC. Окно не показывается, программа сворачивается в трей." />
                 <CheckBox Content="Быстрый режим (нативный TLS, без точного JA4)" IsChecked="{Binding NativeTls}"
                           ToolTip.Tip="Нативный SslStream с AES-NI - кратно выше скорость, но ClientHello перестаёт быть точным отпечатком Chrome (заметнее для продвинутого DPI). Применяется при следующем подключении." />
             </StackPanel>

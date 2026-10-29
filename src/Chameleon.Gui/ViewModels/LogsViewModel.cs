@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Media;
 using Chameleon.Gui.Common;
 using CommunityToolkit.Mvvm.Input;
 
@@ -8,7 +9,7 @@ namespace Chameleon.Gui.ViewModels;
 public sealed partial class LogsViewModel : PageViewModel
 {
     public override string Title => "Логи";
-    public override string Icon => "📋";
+    public override Geometry Icon => PageIcons.Logs;
 
     public ObservableCollection<string> Log => Services.Log;
 

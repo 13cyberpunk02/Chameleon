@@ -1,3 +1,4 @@
+using Avalonia.Media;
 using Chameleon.Gui.Common;
 using Chameleon.Tunnel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -9,7 +10,7 @@ namespace Chameleon.Gui.ViewModels;
 public sealed partial class SettingsViewModel : PageViewModel
 {
     public override string Title => "Настройки";
-    public override string Icon => "⚙";
+    public override Geometry Icon => PageIcons.Settings;
 
     private readonly ProfileStore _store = Services.Store;
 
@@ -45,7 +46,11 @@ public sealed partial class SettingsViewModel : PageViewModel
             string? found = Tun2SocksLocator.Find();
             if (found is not null)
             {
+                // Поле, а не свойство, обходит OnTun2SocksPathChanged - сохраняем явно,
+                // иначе найденный путь показывался, но подключение его не видело.
                 _tun2SocksPath = found;
+                _store.Tun2SocksPath = found;
+                _store.Save();
                 Hint = $"tun2socks найден автоматически: {found}";
             }
         }
