@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Runtime.InteropServices;
 
 namespace Chameleon.Tls;
 
@@ -16,6 +17,9 @@ public sealed class BcDuplexStream(Stream inner) : Stream
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         => await Task.Run(() =>
         {
+            if (MemoryMarshal.TryGetArray<byte>(buffer, out var seg))
+                return inner.Read(seg.Array!, seg.Offset, seg.Count);
+
             byte[] tmp = ArrayPool<byte>.Shared.Rent(buffer.Length);
             try
             {
@@ -37,8 +41,16 @@ public sealed class BcDuplexStream(Stream inner) : Stream
         {
             await Task.Run(() =>
             {
-                byte[] tmp = buffer.ToArray();
-                inner.Write(tmp, 0, tmp.Length);
+                if (MemoryMarshal.TryGetArray(buffer, out var seg))
+                {
+                    inner.Write(seg.Array!, seg.Offset, seg.Count);
+                }
+                else
+                {
+                    byte[] tmp = buffer.ToArray();
+                    inner.Write(tmp, 0, tmp.Length);
+                }
+
                 inner.Flush();
             }, cancellationToken).ConfigureAwait(false);
         }

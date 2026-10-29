@@ -1,22 +1,27 @@
 ﻿namespace Chameleon.Core.Session;
 
 /// <summary>
-/// Контроль перегрузки на уровне сессии: ограничивает число «пакетов в полёте»
+/// Контроль перегрузки на уровне сессии: ограничивает число БАЙТ «в полёте»
 /// адаптивным окном (cwnd) и вычисляет адаптивный RTO по измеренному RTT.
 ///
-/// Зачем: без окна отправитель льёт данные без оглядки → очередь на канале растёт
-/// → фиксированный RTO срабатывает на ещё живые пакеты → лавина ложных
-/// ретрансмитов (пожирает CPU, режет полезную скорость, раздувает память).
+/// Несущие - TCP/TLS: они сами надёжны и сами регулируют скорость. Поэтому окно
+/// здесь - прежде всего предохранитель памяти (неподтверждённые пакеты хранятся
+/// для ретрансмита) и тормоз для мультипути, а не основной регулятор. Окно в
+/// байтах, а не в пакетах: иначе поток мелких пакетов (сайт отдаёт по 1-2 КБ)
+/// упирается в потолок cwnd·размер/RTT задолго до пропускной способности канала.
 ///
-/// Окно - AIMD, как в TCP Reno: медленный старт (×2 за RTT) до ssthresh, затем
-/// линейный рост (+1 за RTT); при потере (RTO) - ssthresh = cwnd/2, откат.
+/// Окно - AIMD: медленный старт (+подтверждённые байты) до ssthresh, затем
+/// линейный рост; при потере (RTO, только в мультипути) - ssthresh = cwnd/2.
 /// RTO - по RFC 6298 (SRTT + 4·RTTVAR), с алгоритмом Карна (RTT только по
 /// пакетам без ретрансмита).
 /// </summary>
 public sealed class CongestionControl
 {
+    private const int Mss = 16 * 1024;
+
     private readonly object _lock = new();
-    private readonly SemaphoreSlim _signal = new(0, int.MaxValue);
+    private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _hasWaiters;
 
     private double _cwnd;
     private double _ssthresh = double.MaxValue;
@@ -26,14 +31,14 @@ public sealed class CongestionControl
     private double _rttVar;
     private bool _policing;
 
-    public int MinCwnd { get; init; } = 4;
-    public int MaxCwnd { get; init; } = 4096;
-    public int MinRtoMs { get; init; } = 100;
+    public long MinCwnd { get; init; } = 256 * 1024;
+    public long MaxCwnd { get; init; } = 16 * 1024 * 1024;
+    public int MinRtoMs { get; init; } = 200;
     public int MaxRtoMs { get; init; } = 10_000;
 
-    public CongestionControl(int initialCwnd = 16) => _cwnd = initialCwnd;
+    public CongestionControl(long initialCwndBytes = 1024 * 1024) => _cwnd = initialCwndBytes;
 
-    public int RtoMs { get; private set; } = 300;
+    public int RtoMs { get; private set; } = 1000;
 
     /// <summary>Сглаженный RTT (мс), 0 пока нет измерений.</summary>
     public int SmoothedRttMs
@@ -44,6 +49,7 @@ public sealed class CongestionControl
         }
     }
 
+    /// <summary>Окно в байтах.</summary>
     public double Cwnd
     {
         get
@@ -52,7 +58,14 @@ public sealed class CongestionControl
         }
     }
 
-    public long InFlight => Interlocked.Read(ref _inFlight);
+    /// <summary>Байт в полёте.</summary>
+    public long InFlight
+    {
+        get
+        {
+            lock (_lock) return _inFlight;
+        }
+    }
 
     /// <summary>
     /// Режим «полисинг»: потери вызваны искусственным троттлингом (token bucket),
@@ -72,39 +85,47 @@ public sealed class CongestionControl
         }
     }
 
-    /// <summary>Ждёт, пока в окне освободится место под новый пакет, затем занимает слот.</summary>
-    public async ValueTask AcquireAsync(CancellationToken cancellationToken)
+    /// <summary>Ждёт, пока в окне освободится место под <paramref name="bytes"/>, затем занимает его.
+    /// Пустое окно пропускает пакет любого размера (иначе крупный пакет мог бы застрять навсегда).</summary>
+    public async ValueTask AcquireAsync(int bytes, CancellationToken cancellationToken)
     {
         while (true)
         {
+            Task wait;
             lock (_lock)
             {
-                if (_inFlight < (long)Math.Max(MinCwnd, _cwnd))
+                if (_inFlight == 0 || _inFlight + bytes <= (long)Math.Max(MinCwnd, _cwnd))
                 {
-                    _inFlight++;
+                    _inFlight += bytes;
                     return;
                 }
+
+                _hasWaiters = true;
+                wait = _changed.Task;
             }
 
-            await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await wait.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
-    /// <summary>Пакет подтверждён: освобождаем слот, растим окно, обновляем RTT.</summary>
-    public void OnAck(int rttSampleMs, bool wasRetransmitted)
+    /// <summary>Пакет подтверждён: освобождаем место, растим окно, обновляем RTT.</summary>
+    public void OnAck(int bytes, int rttSampleMs, bool wasRetransmitted)
     {
+        TaskCompletionSource? wake;
         lock (_lock)
         {
-            if (_inFlight > 0) _inFlight--;
+            _inFlight = Math.Max(0, _inFlight - bytes);
 
             if (!wasRetransmitted && rttSampleMs >= 0) UpdateRtt(rttSampleMs);
 
-            if (_cwnd < _ssthresh) _cwnd += 1;
-            else _cwnd += 1.0 / _cwnd;
+            if (_cwnd < _ssthresh) _cwnd += bytes;
+            else _cwnd += (double)Mss * bytes / _cwnd;
             if (_cwnd > MaxCwnd) _cwnd = MaxCwnd;
+
+            wake = TakeWaitersLocked();
         }
 
-        _signal.Release();
+        wake?.TrySetResult();
     }
 
     /// <summary>
@@ -114,6 +135,7 @@ public sealed class CongestionControl
     /// </summary>
     public void OnLoss()
     {
+        TaskCompletionSource? wake;
         lock (_lock)
         {
             if (_policing)
@@ -125,20 +147,35 @@ public sealed class CongestionControl
                 _ssthresh = Math.Max(MinCwnd, _cwnd / 2);
                 _cwnd = _ssthresh;
             }
+
+            wake = TakeWaitersLocked();
         }
 
-        _signal.Release();
+        wake?.TrySetResult();
     }
 
-    /// <summary>Освободить слот без изменения окна (например, при закрытии).</summary>
-    public void ReleaseSlot()
+    /// <summary>Освободить место без изменения окна (например, при закрытии).</summary>
+    public void Release(int bytes)
     {
+        TaskCompletionSource? wake;
         lock (_lock)
         {
-            if (_inFlight > 0) _inFlight--;
+            _inFlight = Math.Max(0, _inFlight - bytes);
+            wake = TakeWaitersLocked();
         }
 
-        _signal.Release();
+        wake?.TrySetResult();
+    }
+
+    /// <summary>Будит ждущих только если они есть: без лишних аллокаций и без накопления
+    /// «разрешений», как у семафора (из-за которых ждущий потом крутился вхолостую).</summary>
+    private TaskCompletionSource? TakeWaitersLocked()
+    {
+        if (!_hasWaiters) return null;
+        _hasWaiters = false;
+        var old = _changed;
+        _changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        return old;
     }
 
     private void UpdateRtt(int r)

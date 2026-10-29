@@ -17,7 +17,10 @@ public sealed class FrameChannel(Stream stream) : ICarrierChannel
     public const int HeaderSize = 2;
     public const int MaxPacket = 65535;
 
-    private readonly PipeReader _reader = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
+    // По умолчанию PipeReader читает по 4 КБ: кадр 16 КБ собирался за 4+ чтения, а для
+    // BouncyCastle-несущей каждое чтение - это ещё и Task.Run. Читаем крупно.
+    private readonly PipeReader _reader = PipeReader.Create(stream,
+        new StreamPipeReaderOptions(bufferSize: 128 * 1024, minimumReadSize: 32 * 1024, leaveOpen: true));
     private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     public async ValueTask<int> ReadRecordAsync(Memory<byte> destination, CancellationToken cancellationToken = default)

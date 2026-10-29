@@ -26,6 +26,22 @@ public sealed class ReedSolomon
         }
 
         for (int i = 255; i < 512; i++) Exp[i] = Exp[i - 255];
+
+        for (int a = 0; a < 256; a++)
+        {
+            var row = new byte[256];
+            for (int b = 0; b < 256; b++) row[b] = Mul((byte)a, (byte)b);
+            MulTable[a] = row;
+        }
+    }
+
+    /// <summary>MulTable[a][b] = a·b в GF(256): горячий цикл кодека - один lookup на байт.</summary>
+    private static readonly byte[][] MulTable = new byte[256][];
+
+    private static void MulAdd(byte coeff, byte[] src, byte[] dst, int size)
+    {
+        byte[] t = MulTable[coeff];
+        for (int p = 0; p < size; p++) dst[p] ^= t[src[p]];
     }
 
     private readonly int _k;
@@ -80,9 +96,7 @@ public sealed class ReedSolomon
             {
                 byte coeff = row[j];
                 if (coeff == 0) continue;
-                var src = data[j];
-                for (int p = 0; p < size; p++)
-                    outShard[p] ^= Mul(coeff, src[p]);
+                MulAdd(coeff, data[j], outShard, size);
             }
 
             parity[i] = outShard;
@@ -128,9 +142,7 @@ public sealed class ReedSolomon
             {
                 byte coeff = inv[r][j];
                 if (coeff == 0) continue;
-                var src = vals[j];
-                for (int p = 0; p < shardSize; p++)
-                    outShard[p] ^= Mul(coeff, src[p]);
+                MulAdd(coeff, vals[j], outShard, shardSize);
             }
 
             present[r] = true;
