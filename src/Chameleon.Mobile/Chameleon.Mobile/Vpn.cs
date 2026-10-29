@@ -36,6 +36,11 @@ public static class Vpn
         Post(() => IpChanged?.Invoke(ip));
     }
 
+    /// <summary>Страна выхода (где стоит сервер): ISO-код в нижнем регистре и название.</summary>
+    public static event Action<string, string?>? CountryChanged;
+
+    public static void ReportCountry(string code, string? name) => Post(() => CountryChanged?.Invoke(code, name));
+
     private static void Post(Action a)
     {
         try

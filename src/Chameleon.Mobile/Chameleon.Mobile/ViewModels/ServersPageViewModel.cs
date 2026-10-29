@@ -138,6 +138,14 @@ public partial class ServersPageViewModel : ViewModelBase
 
         if (IsEditing && _editing is not null)
         {
+            // Другой адрес - возможно, другой сервер: запомненная страна больше не верна.
+            if (!ChameleonLink.TryParse(_editing.Link, out var old, out _) || old is null ||
+                !string.Equals(old.Host, host, StringComparison.OrdinalIgnoreCase) || old.Port != port)
+            {
+                _editing.CountryCode = null;
+                _editing.CountryName = null;
+            }
+
             _editing.Name = name;
             _editing.Link = link;
             _store.Save();

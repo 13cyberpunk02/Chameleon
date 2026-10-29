@@ -20,6 +20,19 @@ public partial class ConnectPageViewModel : ViewModelBase
     [ObservableProperty] private bool _showStats;
     [ObservableProperty] private bool _isPulsing;
 
+    // Состояния для анимации кнопки (классы «сцены» в ConnectPage.axaml).
+    [ObservableProperty] private bool _isConnecting;
+    [ObservableProperty] private bool _isSettling;
+
+    // Страна сервера: из кэша профиля до подключения, уточняется после.
+    [ObservableProperty] private string? _countryCode;
+    [ObservableProperty] private string _countryName = "";
+
+    private VpnStatus _lastStatus = VpnStatus.Disconnected;
+
+    /// <summary>Профиль, с которым идёт подключение (ему запоминаем страну).</summary>
+    private MobileProfile? _sessionProfile;
+
     public ConnectPageViewModel(MobileProfiles store)
     {
         _store = store;
@@ -27,12 +40,35 @@ public partial class ConnectPageViewModel : ViewModelBase
         Vpn.StatusChanged += ApplyStatus;
         Vpn.StatsChanged += ApplyStats;
         Vpn.IpChanged += ip => PublicIp = ip;
+        Vpn.CountryChanged += ApplyCountry;
         ApplyStatus(Vpn.Status);
     }
 
     public void RefreshProfile()
     {
         ProfileName = _store.Active?.Name is { Length: > 0 } n ? n : "Профиль не выбран";
+        if (IsConnected) return;
+        CountryCode = _store.Active?.CountryCode;
+        CountryName = _store.Active?.CountryName ?? "";
+    }
+
+    /// <summary>Страна выхода узнана через туннель: показать и запомнить в профиле.</summary>
+    private void ApplyCountry(string code, string? name)
+    {
+        CountryCode = code;
+        CountryName = name ?? code.ToUpperInvariant();
+        var p = _sessionProfile ?? _store.Active;
+        if (p is null || (p.CountryCode == code && p.CountryName == name)) return;
+        p.CountryCode = code;
+        p.CountryName = name;
+        _store.Save();
+    }
+
+    private async System.Threading.Tasks.Task SettleAsync()
+    {
+        IsSettling = true;
+        await System.Threading.Tasks.Task.Delay(700);
+        IsSettling = false;
     }
 
     [RelayCommand]
@@ -52,6 +88,7 @@ public partial class ConnectPageViewModel : ViewModelBase
         }
 
         Hint = "";
+        _sessionProfile = active;
         Vpn.Current?.Connect(active.Link);
     }
 
@@ -68,6 +105,15 @@ public partial class ConnectPageViewModel : ViewModelBase
         StatusColor = Brush.Parse(color);
         ShowStats = s == VpnStatus.Connected;
         IsPulsing = s is VpnStatus.Connected or VpnStatus.Connecting;
+        IsConnecting = s == VpnStatus.Connecting;
+        if (s == VpnStatus.Disconnected && _lastStatus == VpnStatus.Connected) _ = SettleAsync();
+        if (s is VpnStatus.Disconnected or VpnStatus.Error)
+        {
+            _sessionProfile = null;
+            RefreshProfile();
+        }
+
+        _lastStatus = s;
         if (s != VpnStatus.Connected)
         {
             TrafficDown = "0 B";

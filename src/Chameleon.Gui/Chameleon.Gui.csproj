@@ -11,6 +11,8 @@
 
     <ItemGroup>
         <AvaloniaResource Include="Assets/chameleon-shield.svg" />
+        <!-- Флаги стран (общие с мобильной версией): assets/flags в корне репозитория -->
+        <AvaloniaResource Include="..\..\assets\flags\*.png" Link="Assets\Flags\%(Filename)%(Extension)" />
     </ItemGroup>
 
     <ItemGroup>

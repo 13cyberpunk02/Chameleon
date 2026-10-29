@@ -316,19 +316,16 @@ public sealed class ChameleonVpnService : VpnService
         return ((uint)b[0] << 24) | ((uint)b[1] << 16) | ((uint)b[2] << 8) | b[3];
     }
 
-    /// <summary>Получить внешний IP через наш SOCKS (как на десктопе) и сообщить в UI.</summary>
+    /// <summary>Внешний IP и страна выхода через наш SOCKS (как на десктопе) - в UI.</summary>
     private static async Task FetchIpAsync()
     {
         try
         {
-            var handler = new System.Net.Http.SocketsHttpHandler
-            {
-                Proxy = new System.Net.WebProxy($"socks5://127.0.0.1:{VpnEngine.SocksPort}"),
-                UseProxy = true,
-            };
-            using var http = new System.Net.Http.HttpClient(handler) { Timeout = TimeSpan.FromSeconds(12) };
-            var ip = (await http.GetStringAsync("https://api.ipify.org").ConfigureAwait(false)).Trim();
-            global::Chameleon.Mobile.Vpn.ReportIp(string.IsNullOrWhiteSpace(ip) ? "-" : ip);
+            var info = await global::Chameleon.Core.Proxy.ExitGeo
+                .LookupAsync($"127.0.0.1:{VpnEngine.SocksPort}", TimeSpan.FromSeconds(12)).ConfigureAwait(false);
+            global::Chameleon.Mobile.Vpn.ReportIp(info?.Ip ?? "-");
+            if (info?.CountryCode is { } code)
+                global::Chameleon.Mobile.Vpn.ReportCountry(code, info.CountryName);
         }
         catch
         {

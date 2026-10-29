@@ -34,15 +34,36 @@ public sealed partial class ConnectViewModel : PageViewModel
     [ObservableProperty] private string _buttonText = "Подключить";
     [ObservableProperty] private string _errorText = "";
 
+    /// <summary>Идёт подключение/переподключение - для анимации (дуга-спиннер и волны).</summary>
+    [ObservableProperty] private bool _isConnecting;
+
+    /// <summary>Короткий импульс после отключения - кнопка «оседает» (анимация отключения).</summary>
+    [ObservableProperty] private bool _isSettling;
+
+    // Страна сервера: из кэша профиля до подключения, уточняется после.
+    [ObservableProperty] private string? _countryCode;
+    [ObservableProperty] private string _countryName = "";
+
     public Geometry PowerIcon => PageIcons.Power;
+
+    /// <summary>Профиль, с которым идёт текущее подключение (ему запоминаем страну).</summary>
+    private ServerProfile? _sessionProfile;
 
     protected override void OnActivated() => RefreshProfile();
 
-    /// <summary>Имя выбранного профиля. Раньше показывалось «профиль не выбран», пока не нажмёшь кнопку.</summary>
+    partial void OnIsBusyChanged(bool value) => UpdateConnecting();
+
+    private void UpdateConnecting() =>
+        IsConnecting = IsBusy || _tunnel.Status is TunnelStatus.Connecting or TunnelStatus.Reconnecting;
+
+    /// <summary>Имя и страна выбранного профиля. Раньше показывалось «профиль не выбран», пока не нажмёшь кнопку.</summary>
     private void RefreshProfile()
     {
         if (IsConnected || IsBusy) return;
-        ActiveProfile = _store.Selected?.Display ?? "Сервер не выбран - добавьте его на вкладке «Серверы»";
+        var p = _store.Selected;
+        ActiveProfile = p?.Display ?? "Сервер не выбран - добавьте его на вкладке «Серверы»";
+        CountryCode = p?.CountryCode;
+        CountryName = p?.CountryName ?? "";
     }
 
     /// <summary>Автоподключение при запуске (настройка «Авто подключение при запуске»).</summary>
@@ -114,6 +135,7 @@ public sealed partial class ConnectViewModel : PageViewModel
                 NativeTls = _store.NativeTls,
             };
             ActiveProfile = profile.Display;
+            _sessionProfile = profile;
             await _tunnel.ConnectAsync(options, cts.Token);
         }
         catch (Exception)
@@ -140,8 +162,12 @@ public sealed partial class ConnectViewModel : PageViewModel
             _ => ("Отключено", "#8B949E", "Подключить", false),
         };
         StatusColor = Brush.Parse(color);
+        UpdateConnecting();
         ErrorText = s == TunnelStatus.Error ? _tunnel.LastError ?? "Подробности - на вкладке «Логи»" : "";
         if (!IsConnected) RefreshProfile();
+
+        if (s == TunnelStatus.Disconnected && _lastStatus is TunnelStatus.Connected or TunnelStatus.Reconnecting)
+            _ = SettleAsync();
 
         // Переподключение - продолжение той же сессии: время не сбрасываем.
         if (s == TunnelStatus.Connected) StartStats(resetUptime: _lastStatus != TunnelStatus.Reconnecting);
@@ -149,12 +175,19 @@ public sealed partial class ConnectViewModel : PageViewModel
         _lastStatus = s;
     }
 
+    private async Task SettleAsync()
+    {
+        IsSettling = true;
+        await Task.Delay(700);
+        IsSettling = false;
+    }
+
     private void StartStats(bool resetUptime)
     {
         if (resetUptime) _connectedAt = DateTime.Now;
         _statusTimer ??= new Timer(_ => Avalonia.Threading.Dispatcher.UIThread.Post(UpdateStats), null,
             0, 1000);
-        _ = RefreshIpAsync();
+        _ = RefreshExitAsync();
     }
 
     private void StopStats()
@@ -178,21 +211,27 @@ public sealed partial class ConnectViewModel : PageViewModel
             : $"{t.Minutes:00}:{t.Seconds:00}";
     }
 
-    private async Task RefreshIpAsync()
+    /// <summary>IP и страна выхода (через туннель). Страна запоминается в профиле - флаг будет
+    /// виден в списке серверов и на главной и до следующего подключения.</summary>
+    private async Task RefreshExitAsync()
     {
-        try
+        string socks = string.IsNullOrWhiteSpace(_store.Socks) ? "127.0.0.1:1080" : _store.Socks;
+        var info = await Chameleon.Core.Proxy.ExitGeo.LookupAsync(socks, TimeSpan.FromSeconds(8));
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            string socks = string.IsNullOrWhiteSpace(_store.Socks) ? "127.0.0.1:1080" : _store.Socks;
-            using var handler = new HttpClientHandler
-                { Proxy = new System.Net.WebProxy($"socks5://{socks}"), UseProxy = true };
-            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
-            string ip = (await http.GetStringAsync("https://api.ipify.org")).Trim();
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => PublicIp = ip);
-        }
-        catch
-        {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => PublicIp = "-");
-        }
+            if (!IsConnected) return;
+            PublicIp = info?.Ip ?? "-";
+            if (info?.CountryCode is not { } code) return;
+
+            CountryCode = code;
+            CountryName = info.CountryName ?? code.ToUpperInvariant();
+            if (_sessionProfile is { } p && (p.CountryCode != code || p.CountryName != info.CountryName))
+            {
+                p.CountryCode = code;
+                p.CountryName = info.CountryName;
+                _store.Save();
+            }
+        });
     }
 
     private static string Human(long bytes)

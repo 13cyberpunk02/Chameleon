@@ -1,29 +1,220 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Chameleon.Gui.ViewModels"
+             xmlns:common="using:Chameleon.Gui.Common"
              x:Class="Chameleon.Gui.Views.ConnectView"
              x:DataType="vm:ConnectViewModel">
-    <StackPanel Spacing="24" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="360">
 
-        <TextBlock Text="{Binding ActiveProfile}" HorizontalAlignment="Center"
-                   Classes="subtitle" FontSize="14" />
+    <!--
+        Анимация кнопки. Состояние задают классы «сцены» (Panel.stage):
+          connecting - вращается дуга, от кнопки расходятся волны;
+          connected  - кнопка «подпрыгивает», за ней плавно разгорается и «дышит» свечение;
+          settling   - после отключения кнопка «оседает», свечение гаснет;
+        цвет обводки/значка/точки статуса перетекает плавно (BrushTransition).
+    -->
+    <UserControl.Styles>
+        <!-- Свечение за кнопкой -->
+        <Style Selector="Panel.glowHost">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.7" Easing="CubicEaseOut" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Panel.stage.connected Panel.glowHost">
+            <Setter Property="Opacity" Value="0.55" />
+        </Style>
+        <Style Selector="Panel.stage.connected Ellipse.glow">
+            <Style.Animations>
+                <Animation Duration="0:0:2.6" IterationCount="INFINITE" PlaybackDirection="Alternate"
+                           Easing="SineEaseInOut">
+                    <KeyFrame Cue="0%"><Setter Property="ScaleTransform.ScaleX" Value="0.94" /><Setter Property="ScaleTransform.ScaleY" Value="0.94" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="ScaleTransform.ScaleX" Value="1.06" /><Setter Property="ScaleTransform.ScaleY" Value="1.06" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
 
-        <Button Command="{Binding ToggleCommand}"
-                Width="180" Height="180" CornerRadius="90"
-                HorizontalAlignment="Center"
-                Background="{DynamicResource PowerButtonBrush}" BorderBrush="{Binding StatusColor}"
-                BorderThickness="4" Cursor="Hand">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
-                <!-- Векторный значок: символ ⏻ в шрифтах Windows 10 отсутствует и рисовался «квадратиками» -->
-                <PathIcon Data="{Binding PowerIcon}" Width="54" Height="54" HorizontalAlignment="Center"
-                          Foreground="{Binding StatusColor}" />
-                <TextBlock Text="{Binding ButtonText}" FontSize="15" HorizontalAlignment="Center" />
+        <!-- Волны при подключении -->
+        <Style Selector="Ellipse.ripple">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="Panel.stage.connecting Ellipse.ripple.r1">
+            <Style.Animations>
+                <Animation Duration="0:0:1.8" IterationCount="INFINITE" Easing="CubicEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0.7" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1" /><Setter Property="ScaleTransform.ScaleY" Value="1" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="0" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.38" /><Setter Property="ScaleTransform.ScaleY" Value="1.38" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Panel.stage.connecting Ellipse.ripple.r2">
+            <Style.Animations>
+                <Animation Duration="0:0:1.8" Delay="0:0:0.9" IterationCount="INFINITE" Easing="CubicEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0.7" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1" /><Setter Property="ScaleTransform.ScaleY" Value="1" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="0" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.38" /><Setter Property="ScaleTransform.ScaleY" Value="1.38" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+
+        <!-- Дуга-спиннер вокруг кнопки -->
+        <Style Selector="Arc.spinner">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.3" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Panel.stage.connecting Arc.spinner">
+            <Setter Property="Opacity" Value="1" />
+            <Style.Animations>
+                <Animation Duration="0:0:1.1" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%"><Setter Property="RotateTransform.Angle" Value="0" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="RotateTransform.Angle" Value="360" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+
+        <!-- Кнопка: плавный цвет, отклик на нажатие, «прыжок» при подключении, «оседание» при отключении -->
+        <Style Selector="Button.power">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.45" />
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.power:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.94)" />
+        </Style>
+        <!-- «Прыжок»/«оседание» - на обёртке кнопки (у неё своя ScaleTransform), чтобы не
+             спорить с RenderTransform нажатия на самой кнопке. -->
+        <Style Selector="Panel.stage.connected Panel.powerWrap">
+            <Style.Animations>
+                <Animation Duration="0:0:0.6" FillMode="None">
+                    <KeyFrame Cue="0%"><Setter Property="ScaleTransform.ScaleX" Value="1" /><Setter Property="ScaleTransform.ScaleY" Value="1" /></KeyFrame>
+                    <KeyFrame Cue="35%"><Setter Property="ScaleTransform.ScaleX" Value="1.09" /><Setter Property="ScaleTransform.ScaleY" Value="1.09" /></KeyFrame>
+                    <KeyFrame Cue="65%"><Setter Property="ScaleTransform.ScaleX" Value="0.98" /><Setter Property="ScaleTransform.ScaleY" Value="0.98" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="ScaleTransform.ScaleX" Value="1" /><Setter Property="ScaleTransform.ScaleY" Value="1" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Panel.stage.settling Panel.powerWrap">
+            <Style.Animations>
+                <Animation Duration="0:0:0.5" FillMode="None" Easing="CubicEaseOut">
+                    <KeyFrame Cue="0%"><Setter Property="ScaleTransform.ScaleX" Value="1" /><Setter Property="ScaleTransform.ScaleY" Value="1" /></KeyFrame>
+                    <KeyFrame Cue="40%"><Setter Property="ScaleTransform.ScaleX" Value="0.92" /><Setter Property="ScaleTransform.ScaleY" Value="0.92" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="ScaleTransform.ScaleX" Value="1" /><Setter Property="ScaleTransform.ScaleY" Value="1" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="PathIcon.power">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Foreground" Duration="0:0:0.45" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Ellipse.dot">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Fill" Duration="0:0:0.45" />
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <!-- Флаг: скруглённые углы и лёгкая тень -->
+        <Style Selector="Border.flag">
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="ClipToBounds" Value="True" />
+            <Setter Property="BoxShadow" Value="0 1 4 0 #40000000" />
+        </Style>
+    </UserControl.Styles>
+
+    <StackPanel Spacing="20" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="360">
+
+        <!-- Сервер: флаг страны + имя профиля + страна -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12">
+            <Panel VerticalAlignment="Center">
+                <Border Classes="flag"
+                        IsVisible="{Binding CountryCode, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <Image Height="22" Stretch="Uniform"
+                           Source="{Binding CountryCode, Converter={x:Static common:FlagConverter.Instance}}" />
+                </Border>
+                <PathIcon Data="{StaticResource IconGlobe}" Width="22" Height="22"
+                          Foreground="{StaticResource MutedBrush}"
+                          IsVisible="{Binding CountryCode, Converter={x:Static ObjectConverters.IsNull}}" />
+            </Panel>
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="{Binding ActiveProfile}" FontSize="15" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding CountryName}" Classes="label"
+                           IsVisible="{Binding CountryName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
-        </Button>
+        </StackPanel>
+
+        <!-- Сцена кнопки -->
+        <Panel Classes="stage" Width="260" Height="260" HorizontalAlignment="Center"
+               Classes.connecting="{Binding IsConnecting}"
+               Classes.connected="{Binding IsConnected}"
+               Classes.settling="{Binding IsSettling}">
+
+            <Panel Classes="glowHost" IsHitTestVisible="False">
+                <Ellipse Classes="glow" Width="196" Height="196" Fill="{Binding StatusColor}">
+                    <Ellipse.RenderTransform><ScaleTransform /></Ellipse.RenderTransform>
+                    <Ellipse.Effect>
+                        <BlurEffect Radius="36" />
+                    </Ellipse.Effect>
+                </Ellipse>
+            </Panel>
+
+            <Ellipse Classes="ripple r1" Width="184" Height="184" IsHitTestVisible="False"
+                     Stroke="{Binding StatusColor}" StrokeThickness="2">
+                <Ellipse.RenderTransform><ScaleTransform /></Ellipse.RenderTransform>
+            </Ellipse>
+            <Ellipse Classes="ripple r2" Width="184" Height="184" IsHitTestVisible="False"
+                     Stroke="{Binding StatusColor}" StrokeThickness="2">
+                <Ellipse.RenderTransform><ScaleTransform /></Ellipse.RenderTransform>
+            </Ellipse>
+
+            <Arc Classes="spinner" Width="204" Height="204" IsHitTestVisible="False"
+                 StartAngle="-90" SweepAngle="70" Stroke="{Binding StatusColor}"
+                 StrokeThickness="4" StrokeLineCap="Round">
+                <Arc.RenderTransform><RotateTransform /></Arc.RenderTransform>
+            </Arc>
+
+            <Panel Classes="powerWrap" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Panel.RenderTransform><ScaleTransform /></Panel.RenderTransform>
+            <Button Classes="power" Command="{Binding ToggleCommand}"
+                    Width="180" Height="180" CornerRadius="90"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="{DynamicResource PowerButtonBrush}" BorderBrush="{Binding StatusColor}"
+                    BorderThickness="4" Cursor="Hand">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+                    <!-- Векторный значок: символ ⏻ в шрифтах Windows 10 отсутствует и рисовался «квадратиками» -->
+                    <PathIcon Classes="power" Data="{Binding PowerIcon}" Width="54" Height="54"
+                              HorizontalAlignment="Center" Foreground="{Binding StatusColor}" />
+                    <TextBlock Text="{Binding ButtonText}" FontSize="15" HorizontalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            </Panel>
+        </Panel>
 
         <StackPanel Spacing="6" HorizontalAlignment="Center">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-                <Ellipse Width="10" Height="10" VerticalAlignment="Center" Fill="{Binding StatusColor}" />
+                <Ellipse Classes="dot" Width="10" Height="10" VerticalAlignment="Center"
+                         Fill="{Binding StatusColor}" />
                 <TextBlock Text="{Binding StatusText}" FontSize="16" FontWeight="SemiBold"
                            Foreground="{Binding StatusColor}" />
             </StackPanel>
@@ -36,7 +227,7 @@
             <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="14" ColumnSpacing="24">
 
                 <StackPanel Grid.Row="0" Grid.Column="0">
-                    <TextBlock Text="IP через туннель" Classes="label" />
+                    <TextBlock Text="IP сервера" Classes="label" />
                     <TextBlock Text="{Binding PublicIp}" Classes="value" />
                 </StackPanel>
                 <StackPanel Grid.Row="0" Grid.Column="1">

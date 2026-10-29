@@ -33,6 +33,32 @@ public sealed class MobileProfile : INotifyPropertyChanged
         }
     } = string.Empty;
 
+    /// <summary>
+    /// Страна сервера (ISO-код, «fi»), запомненная при последнем подключении - флаг виден
+    /// в списке и на главной до подключения. Узнаётся только через туннель.
+    /// </summary>
+    public string? CountryCode
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            OnPC();
+        }
+    }
+
+    public string? CountryName
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            OnPC();
+        }
+    }
+
     [JsonIgnore]
     public bool IsActive
     {

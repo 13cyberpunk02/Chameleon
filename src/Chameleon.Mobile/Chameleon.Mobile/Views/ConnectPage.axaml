@@ -1,8 +1,13 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Chameleon.Mobile.ViewModels"
+             xmlns:m="using:Chameleon.Mobile"
              x:Class="Chameleon.Mobile.Views.ConnectPage"
              x:DataType="vm:ConnectPageViewModel">
+    <UserControl.Resources>
+        <StreamGeometry x:Key="IconGlobe">M17.9,17.39C17.64,16.59 16.89,16 16,16H15V13A1,1 0 0,0 14,12H8V10H10A1,1 0 0,0 11,9V7H13A2,2 0 0,0 15,5V4.59C17.93,5.77 20,8.64 20,12C20,14.08 19.2,15.97 17.9,17.39M11,19.93C7.05,19.44 4,16.08 4,12C4,11.38 4.08,10.78 4.21,10.21L9,15V16A2,2 0 0,0 11,18M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z</StreamGeometry>
+    </UserControl.Resources>
+
     <Grid RowDefinitions="Auto,*,Auto" Margin="24,28">
 
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
@@ -12,28 +17,74 @@
 
         <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="22">
 
-            <Panel Width="210" Height="210" HorizontalAlignment="Center">
-                <Ellipse Name="Pulse" Width="190" Height="190" HorizontalAlignment="Center" VerticalAlignment="Center"
-                         Stroke="{Binding StatusColor}" StrokeThickness="2" Opacity="0"
-                         Classes.pulsing="{Binding IsPulsing}" />
-                <Button Command="{Binding ToggleCommand}" Width="190" Height="190" CornerRadius="95"
-                        HorizontalAlignment="Center" VerticalAlignment="Center" Background="#161B22"
-                        BorderBrush="{Binding StatusColor}" BorderThickness="5">
-                    <Path Data="M12 3 L12 11 M18.4 6.6 a 9 9 0 1 1 -12.8 0"
-                          Stroke="{Binding StatusColor}" StrokeThickness="1.6"
-                          StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent"
-                          Width="72" Height="72" Stretch="Uniform"
-                          HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Button>
+            <!-- Сервер: флаг страны + имя профиля + страна -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="12">
+                <Panel VerticalAlignment="Center">
+                    <Border CornerRadius="4" ClipToBounds="True" BoxShadow="0 1 4 0 #60000000"
+                            IsVisible="{Binding CountryCode, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <Image Height="24" Stretch="Uniform"
+                               Source="{Binding CountryCode, Converter={x:Static m:FlagConverter.Instance}}" />
+                    </Border>
+                    <PathIcon Data="{StaticResource IconGlobe}" Width="24" Height="24" Foreground="#8B949E"
+                              IsVisible="{Binding CountryCode, Converter={x:Static ObjectConverters.IsNull}}" />
+                </Panel>
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                    <TextBlock Text="{Binding ProfileName}" FontSize="16" FontWeight="SemiBold" Foreground="#E6EDF3" />
+                    <TextBlock Text="{Binding CountryName}" FontSize="12" Foreground="#8B949E"
+                               IsVisible="{Binding CountryName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Сцена кнопки: классы задают состояние анимации -->
+            <Panel Classes="stage" Width="270" Height="270" HorizontalAlignment="Center"
+                   Classes.connecting="{Binding IsConnecting}"
+                   Classes.connected="{Binding IsConnected}"
+                   Classes.settling="{Binding IsSettling}">
+
+                <Panel Classes="glowHost" IsHitTestVisible="False">
+                    <Ellipse Classes="glow" Width="206" Height="206" Fill="{Binding StatusColor}">
+                        <Ellipse.RenderTransform><ScaleTransform /></Ellipse.RenderTransform>
+                        <Ellipse.Effect>
+                            <BlurEffect Radius="36" />
+                        </Ellipse.Effect>
+                    </Ellipse>
+                </Panel>
+
+                <Ellipse Classes="ripple r1" Width="194" Height="194" IsHitTestVisible="False"
+                         Stroke="{Binding StatusColor}" StrokeThickness="2">
+                    <Ellipse.RenderTransform><ScaleTransform /></Ellipse.RenderTransform>
+                </Ellipse>
+                <Ellipse Classes="ripple r2" Width="194" Height="194" IsHitTestVisible="False"
+                         Stroke="{Binding StatusColor}" StrokeThickness="2">
+                    <Ellipse.RenderTransform><ScaleTransform /></Ellipse.RenderTransform>
+                </Ellipse>
+
+                <Arc Classes="spinner" Width="214" Height="214" IsHitTestVisible="False"
+                     StartAngle="-90" SweepAngle="70" Stroke="{Binding StatusColor}"
+                     StrokeThickness="5" StrokeLineCap="Round">
+                    <Arc.RenderTransform><RotateTransform /></Arc.RenderTransform>
+                </Arc>
+
+                <Panel Classes="powerWrap" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Panel.RenderTransform><ScaleTransform /></Panel.RenderTransform>
+                    <Button Classes="power" Command="{Binding ToggleCommand}" Width="190" Height="190"
+                            CornerRadius="95" HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Background="#161B22" BorderBrush="{Binding StatusColor}" BorderThickness="5">
+                        <Path Classes="power" Data="M12 3 L12 11 M18.4 6.6 a 9 9 0 1 1 -12.8 0"
+                              Stroke="{Binding StatusColor}" StrokeThickness="1.6"
+                              StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent"
+                              Width="72" Height="72" Stretch="Uniform"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                </Panel>
             </Panel>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-                <Ellipse Width="11" Height="11" VerticalAlignment="Center" Fill="{Binding StatusColor}" />
+                <Ellipse Classes="dot" Width="11" Height="11" VerticalAlignment="Center"
+                         Fill="{Binding StatusColor}" />
                 <TextBlock Text="{Binding StatusText}" FontSize="18" FontWeight="SemiBold"
                            Foreground="{Binding StatusColor}" />
             </StackPanel>
-
-            <TextBlock Text="{Binding ProfileName}" FontSize="14" Foreground="#8B949E" HorizontalAlignment="Center" />
 
             <Border IsVisible="{Binding ShowStats}" Background="#161B22" BorderBrush="#30363D"
                     BorderThickness="1" CornerRadius="12" Padding="18,14" MinWidth="260">
@@ -71,20 +122,161 @@
                    TextWrapping="Wrap" HorizontalAlignment="Center" />
     </Grid>
 
+    <!--
+        Анимация кнопки (как в десктопе). Состояние задают классы «сцены» (Panel.stage):
+          connecting - вращается дуга, от кнопки расходятся волны;
+          connected  - кнопка «подпрыгивает», за ней разгорается и «дышит» свечение;
+          settling   - после отключения кнопка «оседает», свечение гаснет;
+        цвет обводки/значка/точки статуса перетекает плавно.
+        Трансформации анимируются через ScaleTransform/RotateTransform: ключевые кадры по
+        самому RenderTransform в Avalonia 12 не поддерживаются (падение «No animator»).
+    -->
     <UserControl.Styles>
-        <Style Selector="Ellipse.pulsing">
+        <Style Selector="Panel.glowHost">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.7" Easing="CubicEaseOut" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Panel.stage.connected Panel.glowHost">
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
+        <Style Selector="Panel.stage.connected Ellipse.glow">
             <Style.Animations>
-                <Animation Duration="0:0:1.8" IterationCount="INFINITE" Easing="SineEaseOut">
+                <Animation Duration="0:0:2.6" IterationCount="INFINITE" PlaybackDirection="Alternate"
+                           Easing="SineEaseInOut">
                     <KeyFrame Cue="0%">
-                        <Setter Property="Opacity" Value="0.7" /> <Setter Property="Width" Value="190" />
-                        <Setter Property="Height" Value="190" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="0.94" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="0.94" />
                     </KeyFrame>
                     <KeyFrame Cue="100%">
-                        <Setter Property="Opacity" Value="0" />   <Setter Property="Width" Value="210" />
-                        <Setter Property="Height" Value="210" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.06" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.06" />
                     </KeyFrame>
                 </Animation>
             </Style.Animations>
+        </Style>
+
+        <Style Selector="Ellipse.ripple">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="Panel.stage.connecting Ellipse.ripple.r1">
+            <Style.Animations>
+                <Animation Duration="0:0:1.8" IterationCount="INFINITE" Easing="CubicEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0.7" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="0" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.36" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.36" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Panel.stage.connecting Ellipse.ripple.r2">
+            <Style.Animations>
+                <Animation Duration="0:0:1.8" Delay="0:0:0.9" IterationCount="INFINITE" Easing="CubicEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0.7" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="0" />
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.36" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.36" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+
+        <Style Selector="Arc.spinner">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.3" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Panel.stage.connecting Arc.spinner">
+            <Setter Property="Opacity" Value="1" />
+            <Style.Animations>
+                <Animation Duration="0:0:1.1" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%"><Setter Property="RotateTransform.Angle" Value="0" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="RotateTransform.Angle" Value="360" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+
+        <Style Selector="Button.power">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.45" />
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.power:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.94)" />
+        </Style>
+        <Style Selector="Panel.stage.connected Panel.powerWrap">
+            <Style.Animations>
+                <Animation Duration="0:0:0.6" FillMode="None">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="1" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                    </KeyFrame>
+                    <KeyFrame Cue="35%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.09" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.09" />
+                    </KeyFrame>
+                    <KeyFrame Cue="65%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="0.98" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="0.98" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="1" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Panel.stage.settling Panel.powerWrap">
+            <Style.Animations>
+                <Animation Duration="0:0:0.5" FillMode="None" Easing="CubicEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="1" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                    </KeyFrame>
+                    <KeyFrame Cue="40%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="0.92" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="0.92" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="1" />
+                        <Setter Property="ScaleTransform.ScaleY" Value="1" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Path.power">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Stroke" Duration="0:0:0.45" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Ellipse.dot">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Fill" Duration="0:0:0.45" />
+                </Transitions>
+            </Setter>
         </Style>
     </UserControl.Styles>
 </UserControl>

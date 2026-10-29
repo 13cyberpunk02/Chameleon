@@ -136,10 +136,18 @@
                                         <PathIcon Data="{StaticResource IconCheck}" Width="15" Height="15"
                                                   Foreground="#3FB950"
                                                   VerticalAlignment="Center" IsVisible="{Binding IsActive}" />
+                                        <!-- Флаг страны сервера (известен после первого подключения) -->
+                                        <Border CornerRadius="3" ClipToBounds="True" VerticalAlignment="Center"
+                                                IsVisible="{Binding CountryCode, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                            <Image Height="16" Stretch="Uniform"
+                                                   Source="{Binding CountryCode, Converter={x:Static m:FlagConverter.Instance}}" />
+                                        </Border>
                                         <TextBlock Text="{Binding Name}" Foreground="#E6EDF3" FontSize="15"
                                                    FontWeight="SemiBold"
                                                    VerticalAlignment="Center" />
                                     </StackPanel>
+                                    <TextBlock Text="{Binding CountryName}" Foreground="#8B949E" FontSize="12"
+                                               IsVisible="{Binding CountryName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <TextBlock Text="{Binding Link}" Foreground="#8B949E" FontSize="11"
                                                FontFamily="Consolas,monospace" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>

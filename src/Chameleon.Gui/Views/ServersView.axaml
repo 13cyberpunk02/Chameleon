@@ -3,6 +3,7 @@
              xmlns:vm="using:Chameleon.Gui.ViewModels"
              x:Class="Chameleon.Gui.Views.ServersView"
              xmlns:proxy="using:Chameleon.Gui"
+             xmlns:common="using:Chameleon.Gui.Common"
              x:DataType="vm:ServersViewModel">
     <DockPanel>
         <TextBlock DockPanel.Dock="Top" Classes="h1" Text="Серверы" Margin="0,0,0,4" />
@@ -42,12 +43,25 @@
                      Background="Transparent">
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="proxy:ServerProfile">
-                        <Grid ColumnDefinitions="*,Auto" Margin="6,8">
-                            <StackPanel Grid.Column="0" Spacing="2">
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,8">
+                            <!-- Флаг страны сервера (известен после первого подключения), иначе глобус -->
+                            <Panel Grid.Column="0" Width="30" Margin="0,0,12,0" VerticalAlignment="Center">
+                                <Border CornerRadius="3" ClipToBounds="True" HorizontalAlignment="Center"
+                                        IsVisible="{Binding CountryCode, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        ToolTip.Tip="{Binding CountryName}">
+                                    <Image Height="20" Stretch="Uniform"
+                                           Source="{Binding CountryCode, Converter={x:Static common:FlagConverter.Instance}}" />
+                                </Border>
+                                <PathIcon Data="{StaticResource IconGlobe}" Width="20" Height="20"
+                                          Foreground="{StaticResource MutedBrush}"
+                                          IsVisible="{Binding CountryCode, Converter={x:Static ObjectConverters.IsNull}}"
+                                          ToolTip.Tip="Страна станет известна после первого подключения" />
+                            </Panel>
+                            <StackPanel Grid.Column="1" Spacing="2">
                                 <TextBlock Text="{Binding Display}" FontSize="15" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding Server}" Classes="label" />
                             </StackPanel>
-                            <TextBlock Grid.Column="1" Text="{Binding Sni}" FontSize="11"
+                            <TextBlock Grid.Column="2" Text="{Binding Sni}" FontSize="11"
                                        Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
                         </Grid>
                     </DataTemplate>

@@ -8,9 +8,38 @@ using Chameleon.Gui.Settings;
 namespace Chameleon.Gui;
 
 /// <summary>Один профиль сервера.</summary>
-public sealed class ServerProfile
+public sealed class ServerProfile : System.ComponentModel.INotifyPropertyChanged
 {
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Страна сервера (ISO-код, «fi»), запомненная при последнем подключении: флаг виден в
+    /// списке и на главной ещё до подключения. Узнаётся только через туннель - IP сервера
+    /// не отправляется гео-сервисам напрямую с адреса пользователя.
+    /// </summary>
+    public string? CountryCode
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new(nameof(CountryCode)));
+        }
+    }
+
+    public string? CountryName
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new(nameof(CountryName)));
+        }
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     public string Server { get; set; } = string.Empty;
     public string ServerPublicKeyHex { get; set; } = string.Empty;
     public string Sni { get; set; } = "www.example-cdn.com";
