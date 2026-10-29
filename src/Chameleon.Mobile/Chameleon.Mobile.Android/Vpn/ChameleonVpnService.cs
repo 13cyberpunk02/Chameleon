@@ -69,11 +69,13 @@ public sealed class ChameleonVpnService : VpnService
         global::Android.Util.Log.Info("ChameleonVpn", $"fd: before(getFd)={fdBefore}, detached={tunFd}");
         _cts = new CancellationTokenSource();
         _engine = new VpnEngine();
+        bool nativeTls = LoadNativeTls();
         _ = Task.Run(async () =>
         {
             try
             {
-                await _engine.StartAsync(link, _cts.Token);
+                await _engine.StartAsync(link, nativeTls, _cts.Token);
+                WatchNetwork();
                 _tun2socks = new Thread(() =>
                 {
                     string hevLog = System.IO.Path.Combine(FilesDir!.AbsolutePath, "hev.log");
@@ -218,6 +220,69 @@ public sealed class ChameleonVpnService : VpnService
             $"TUN up, fd={_tun.Fd}, mode={cfg.Mode}, apps={cfg.Apps.Count}, excludes={excludes.Count}");
     }
 
+    private static bool LoadNativeTls()
+    {
+        try
+        {
+            return MobileProfiles.Load().NativeTls;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private NetworkWatcher? _networkWatcher;
+
+    /// <summary>
+    /// Подписка на смену сети по умолчанию (Wi-Fi ↔ LTE). Наше приложение исключено из
+    /// VPN, поэтому видит реальную сеть, а не TUN. API 24+; на 23 остаётся keepalive.
+    /// </summary>
+    private void WatchNetwork()
+    {
+        if (_stopping || !OperatingSystem.IsAndroidVersionAtLeast(24) || _engine is not { } engine) return;
+        try
+        {
+            var cm = (ConnectivityManager)GetSystemService(ConnectivityService)!;
+            _networkWatcher = new NetworkWatcher(engine);
+            cm.RegisterDefaultNetworkCallback(_networkWatcher);
+        }
+        catch (Exception e)
+        {
+            global::Android.Util.Log.Warn("ChameleonVpn", "network callback: " + e.Message);
+            _networkWatcher = null;
+        }
+    }
+
+    private void UnwatchNetwork()
+    {
+        if (_networkWatcher is null) return;
+        try
+        {
+            var cm = (ConnectivityManager)GetSystemService(ConnectivityService)!;
+            cm.UnregisterNetworkCallback(_networkWatcher);
+        }
+        catch
+        {
+            // ignored
+        }
+
+        _networkWatcher = null;
+    }
+
+    /// <summary>Первый OnAvailable - текущая сеть; каждый следующий с другой сетью - смена.</summary>
+    private sealed class NetworkWatcher(VpnEngine engine) : ConnectivityManager.NetworkCallback
+    {
+        private long _current = -1;
+
+        public override void OnAvailable(Network network)
+        {
+            long handle = network.NetworkHandle;
+            long previous = Interlocked.Exchange(ref _current, handle);
+            if (previous != -1 && previous != handle) engine.NetworkChanged();
+        }
+    }
+
     private static RoutingConfig LoadRouting()
     {
         try
@@ -277,6 +342,7 @@ public sealed class ChameleonVpnService : VpnService
     {
         if (_stopping) return;
         _stopping = true;
+        UnwatchNetwork();
 
         try
         {

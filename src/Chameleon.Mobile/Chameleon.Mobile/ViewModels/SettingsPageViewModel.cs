@@ -7,6 +7,7 @@ namespace Chameleon.Mobile.ViewModels;
 public partial class SettingsPageViewModel(MobileProfiles store) : ViewModelBase
 {
     [ObservableProperty] private bool _autoConnect = store.AutoConnect;
+    [ObservableProperty] private bool _nativeTls = store.NativeTls;
     [ObservableProperty] private string _hint = "";
     [ObservableProperty] private bool _confirmClear;
 
@@ -22,6 +23,7 @@ public partial class SettingsPageViewModel(MobileProfiles store) : ViewModelBase
     public void Refresh()
     {
         if (_autoConnect != store.AutoConnect) AutoConnect = store.AutoConnect;
+        if (_nativeTls != store.NativeTls) NativeTls = store.NativeTls;
         ConfirmClear = false;
         OnPropertyChanged(nameof(ActiveServerName));
         OnPropertyChanged(nameof(ServerCount));
@@ -32,6 +34,16 @@ public partial class SettingsPageViewModel(MobileProfiles store) : ViewModelBase
         store.AutoConnect = value;
         store.Save();
         Hint = value ? "Авто-подключение включено" : "Авто-подключение выключено";
+    }
+
+    partial void OnNativeTlsChanged(bool value)
+    {
+        if (store.NativeTls == value) return;
+        store.NativeTls = value;
+        store.Save();
+        Hint = value
+            ? "Быстрый режим включён - применится при следующем подключении"
+            : "Быстрый режим выключен (точный отпечаток Chrome) - применится при следующем подключении";
     }
 
     partial void OnConfirmClearChanged(bool value) => OnPropertyChanged(nameof(ClearButtonText));

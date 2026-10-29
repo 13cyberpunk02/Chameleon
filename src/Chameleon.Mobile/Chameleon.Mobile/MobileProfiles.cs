@@ -60,6 +60,13 @@ public sealed class MobileProfiles
     public List<MobileProfile> Profiles { get; set; } = [];
     public int ActiveIndex { get; set; } = -1;
     public bool AutoConnect { get; set; }
+
+    /// <summary>
+    /// Быстрый режим: системный TLS Android вместо BouncyCastle. BouncyCastle на ARM
+    /// шифрует программно (ускорение у него только под x86), системный TLS - аппаратным
+    /// AES. Цена: ClientHello не совпадает с Chrome по JA4.
+    /// </summary>
+    public bool NativeTls { get; set; }
     public RoutingConfig Routing { get; set; } = new();
 
     private static string Path =>

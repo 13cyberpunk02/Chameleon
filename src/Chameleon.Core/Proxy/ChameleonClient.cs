@@ -39,26 +39,7 @@ public sealed class ChameleonClient : IAsyncDisposable
         IReadOnlyList<IPEndPoint>? extraCarrierEndpoints = null,
         CancellationToken cancellationToken = default)
     {
-        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        try
-        {
-            socket.NoDelay = true;
-        }
-        catch
-        {
-            // ignored
-        }
-
-        try
-        {
-            socket.ReceiveBufferSize = 1 << 22;
-            socket.SendBufferSize = 1 << 22;
-        }
-        catch
-        {
-            // ignored
-        }
-
+        var socket = CreateCarrierSocket();
         await socket.ConnectAsync(serverEndPoint, cancellationToken).ConfigureAwait(false);
         Stream stream = carrier is null
             ? new NetworkStream(socket, ownsSocket: true)
@@ -97,6 +78,35 @@ public sealed class ChameleonClient : IAsyncDisposable
         ChameleonSession session, IPEndPoint endpoint, byte[] secret, uint carrierId,
         CarrierWrapper? carrier, CancellationToken cancellationToken)
     {
+        var socket = CreateCarrierSocket();
+        await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+        Stream stream = carrier is null
+            ? new NetworkStream(socket, ownsSocket: true)
+            : await carrier(socket, cancellationToken).ConfigureAwait(false);
+
+        byte[] join = CarrierJoin.BuildJoin(secret, carrierId);
+        await Framing.WriteFrameAsync(stream, join, cancellationToken).ConfigureAwait(false);
+
+        byte[] prefix = new byte[2];
+        int len = await Framing.ReadPrefixAsync(stream, prefix, cancellationToken).ConfigureAwait(false);
+        byte[] ack = await Framing.ReadExactCountAsync(stream, len, cancellationToken).ConfigureAwait(false);
+        if (!CarrierJoin.VerifyAck(secret, GetNonce(join), ack))
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+            throw new ChameleonProtocolException("Сервер не подтвердил присоединение несущей");
+        }
+
+        session.AddCarrier(new FrameChannel(stream));
+    }
+
+    /// <summary>
+    /// Сокет несущей. Кроме NoDelay и крупных буферов - обнаружение «тихой» смерти:
+    /// при смене сети (Wi-Fi ↔ LTE) соединение не рвётся явно, а просто зависает,
+    /// и без этого сессия узнала бы о смерти несущей через минуты (TCP на Linux/Android
+    /// ретрансмитит ~15 мин). Keepalive ловит простой, TCP_USER_TIMEOUT - зависшие данные.
+    /// </summary>
+    private static Socket CreateCarrierSocket()
+    {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         try
         {
@@ -117,24 +127,32 @@ public sealed class ChameleonClient : IAsyncDisposable
             // ignored
         }
 
-        await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
-        Stream stream = carrier is null
-            ? new NetworkStream(socket, ownsSocket: true)
-            : await carrier(socket, cancellationToken).ConfigureAwait(false);
-
-        byte[] join = CarrierJoin.BuildJoin(secret, carrierId);
-        await Framing.WriteFrameAsync(stream, join, cancellationToken).ConfigureAwait(false);
-
-        byte[] prefix = new byte[2];
-        int len = await Framing.ReadPrefixAsync(stream, prefix, cancellationToken).ConfigureAwait(false);
-        byte[] ack = await Framing.ReadExactCountAsync(stream, len, cancellationToken).ConfigureAwait(false);
-        if (!CarrierJoin.VerifyAck(secret, GetNonce(join), ack))
+        try
         {
-            await stream.DisposeAsync().ConfigureAwait(false);
-            throw new ChameleonProtocolException("Сервер не подтвердил присоединение несущей");
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 5);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+        }
+        catch
+        {
+            // ignored
         }
 
-        session.AddCarrier(new FrameChannel(stream));
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsAndroid())
+        {
+            try
+            {
+                const int ipprotoTcp = 6, tcpUserTimeout = 18;
+                socket.SetRawSocketOption(ipprotoTcp, tcpUserTimeout, BitConverter.GetBytes(30_000));
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        return socket;
     }
 
     private static byte[] GetNonce(byte[] join) => join.AsSpan(16 + 4, 16).ToArray();

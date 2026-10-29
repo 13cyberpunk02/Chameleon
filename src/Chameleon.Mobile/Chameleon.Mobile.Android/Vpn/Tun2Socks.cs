@@ -45,7 +45,8 @@ internal static class Tun2Socks
             "  udp: 'udp'\n" +
             "misc:\n" +
             "  task-stack-size: 20480\n" +
-            "  log-level: debug\n" +
+            // debug писал в файл события каждого соединения - заметная нагрузка на CPU и флеш.
+            "  log-level: warn\n" +
             (string.IsNullOrEmpty(logFile) ? "" : $"  log-file: {logFile}\n");
 
         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(yaml);
