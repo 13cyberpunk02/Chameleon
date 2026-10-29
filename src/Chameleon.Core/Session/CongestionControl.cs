@@ -22,6 +22,7 @@ public sealed class CongestionControl
     private readonly object _lock = new();
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _hasWaiters;
+    private Exception? _aborted;
 
     private double _cwnd;
     private double _ssthresh = double.MaxValue;
@@ -94,6 +95,7 @@ public sealed class CongestionControl
             Task wait;
             lock (_lock)
             {
+                if (_aborted is not null) throw new IOException("Сессия закрыта", _aborted);
                 if (_inFlight == 0 || _inFlight + bytes <= (long)Math.Max(MinCwnd, _cwnd))
                 {
                     _inFlight += bytes;
@@ -165,6 +167,24 @@ public sealed class CongestionControl
         }
 
         wake?.TrySetResult();
+    }
+
+    /// <summary>
+    /// Сессия умерла: все ждущие места в окне (и все будущие) получают исключение,
+    /// а не висят вечно - ACK'ов, которые освободили бы окно, уже не будет.
+    /// </summary>
+    public void Abort(Exception? reason = null)
+    {
+        TaskCompletionSource old;
+        lock (_lock)
+        {
+            if (_aborted is not null) return;
+            _aborted = reason ?? new OperationCanceledException();
+            _hasWaiters = false;
+            old = _changed;
+        }
+
+        old.TrySetResult();
     }
 
     /// <summary>Будит ждущих только если они есть: без лишних аллокаций и без накопления

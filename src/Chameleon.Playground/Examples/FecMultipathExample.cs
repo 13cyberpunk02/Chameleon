@@ -26,7 +26,7 @@ public static class FecMultipathExample
         var (cA, sA) = DuplexStream.CreatePair();
         var (cB, sB) = DuplexStream.CreatePair();
 
-        var fec = fecOn ? FecOptions.Default : FecOptions.Off;
+        var fec = fecOn ? FecOptions.On : FecOptions.Off;
 
         await using var server = ChameleonSession.Start(Ch(sA), isClient: false, fec: fec);
         server.AddCarrier(Ch(sB));

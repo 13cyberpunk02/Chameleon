@@ -9,7 +9,8 @@
         <ServerGarbageCollection>false</ServerGarbageCollection>
         <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
         <TieredCompilation>true</TieredCompilation>
-        <TieredPGO>false</TieredPGO>
+        <!-- PGO: JIT доводит горячие пути (сессия, TLS, relay) по реальному профилю. -->
+        <TieredPGO>true</TieredPGO>
     </PropertyGroup>
 
     <ItemGroup>        

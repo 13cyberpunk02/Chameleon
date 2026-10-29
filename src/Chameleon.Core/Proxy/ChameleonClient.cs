@@ -187,7 +187,14 @@ public sealed class ChameleonClient : IAsyncDisposable
                 .ConfigureAwait(false);
             ChameleonStream logical = await _session
                 .OpenStreamAsync(req.Host, req.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
-            await Relay.RunAsync(socket, logical, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await Relay.RunAsync(socket, logical, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _session.ReleaseStream(logical.Id);
+            }
         }
         catch (Exception)
         {
@@ -219,6 +226,7 @@ public sealed class ChameleonClient : IAsyncDisposable
         }
         finally
         {
+            _session.ReleaseStream(logical.Id);
             try
             {
                 udp.Dispose();

@@ -10,8 +10,16 @@ namespace Chameleon.Core.Session;
 /// <summary>Параметры FEC для сессии (Reed-Solomon: k данных + m parity на блок).</summary>
 public sealed record FecOptions(int DataShards = 8, int ParityShards = 2, bool Enabled = true)
 {
-    public static readonly FecOptions Default = new();
+    public static readonly FecOptions On = new();
     public static readonly FecOptions Off = new(8, 2, Enabled: false);
+
+    /// <summary>
+    /// По умолчанию FEC выключен. Несущие - TCP: внутри живой несущей потерь нет, а при
+    /// её смерти пакеты всё равно пересылаются ретрансмитом. Repair же в мультипути -
+    /// это +m/k трафика (25% при 8+2). Включать (<see cref="On"/>) имеет смысл для
+    /// несущих, которые реально теряют пакеты.
+    /// </summary>
+    public static readonly FecOptions Default = Off;
 }
 
 /// <summary>
@@ -66,6 +74,10 @@ public sealed class ChameleonSession : IAsyncDisposable
     private const int MaxEarlyFramesPerStream = 512;
     private const int EarlyFrameTtlMs = 30_000;
     private readonly Dictionary<ulong, (long SinceTicks, List<Frame> Frames)> _early = new();
+
+    /// <summary>Недавно закрытые потоки собеседника (id -> когда). Под замком <see cref="_early"/>.</summary>
+    private readonly Dictionary<ulong, long> _closedPeerStreams = new();
+    private const int ClosedStreamTtlMs = 120_000;
     private readonly SortedSet<ulong> _received = [];
     private readonly object _receivedLock = new();
     private readonly CancellationTokenSource _cts = new();
@@ -189,9 +201,29 @@ public sealed class ChameleonSession : IAsyncDisposable
     public ValueTask ResetStreamAsync(ulong streamId, ulong errorCode = 0,
         CancellationToken cancellationToken = default)
     {
-        _streams.TryRemove(streamId, out _);
+        ReleaseStream(streamId);
         return SendReliableAsync(b => BuildStreamReset(b, NextPacketNumber(), streamId, errorCode), cancellationToken);
     }
+
+    /// <summary>
+    /// Поток больше не нужен локальной стороне (relay закончил с ним работу): убрать из
+    /// сессии. Раньше потоки удалялись только при RESET, и на долгой сессии словарь рос
+    /// без конца. Поздние фреймы (ретрансмиты, дубли OPEN из мультипути) для такого
+    /// потока игнорируются - иначе дубль OPEN заново поднял бы поток и сервер повторно
+    /// подключился бы к цели.
+    /// </summary>
+    public void ReleaseStream(ulong streamId)
+    {
+        if (_streams.TryRemove(streamId, out var st)) st.CompleteInbound();
+        if (!IsPeerStream(streamId)) return;
+        lock (_early)
+        {
+            _early.Remove(streamId);
+            _closedPeerStreams[streamId] = Environment.TickCount64;
+        }
+    }
+
+    private bool IsPeerStream(ulong streamId) => (streamId & 1) == (_isClient ? 0UL : 1UL);
 
     /// <summary>Отправляет пакет и запоминает его для ретрансмита, пока не придёт ACK.</summary>
     private async ValueTask SendReliableAsync(Func<byte[], int> build, CancellationToken cancellationToken)
@@ -220,6 +252,9 @@ public sealed class ChameleonSession : IAsyncDisposable
                 inFlight.SentTicks = Environment.TickCount64;
                 inFlight.Sending = false;
             }
+
+            if (inFlight.Via is null && CarrierCount == 0)
+                throw new IOException("Все несущие сессии закрыты");
 
             // FEC только при мультипути: на одной надёжной несущей repair всё равно не шлётся,
             // а Reed-Solomon на каждый блок - заметный CPU прямо в пути отправки.
@@ -568,8 +603,20 @@ public sealed class ChameleonSession : IAsyncDisposable
         finally
         {
             carrier.Alive = false;
-            if (CarrierCount == 0) _completed.TrySetResult();
+            if (CarrierCount == 0) OnAllCarriersDead();
         }
+    }
+
+    /// <summary>
+    /// Все несущие мертвы - сессия не может ни отправить, ни получить. Будим всех,
+    /// кто ждёт: отправителей в окне и читателей потоков (раньше они висели вечно).
+    /// </summary>
+    private void OnAllCarriersDead()
+    {
+        var error = new IOException("Все несущие сессии закрыты");
+        _cc.Abort(error);
+        foreach (var st in _streams.Values) st.CompleteInbound(error);
+        _completed.TrySetResult();
     }
 
     /// <summary>
@@ -645,6 +692,7 @@ public sealed class ChameleonSession : IAsyncDisposable
                 List<Frame>? early;
                 lock (_early)
                 {
+                    if (_closedPeerStreams.ContainsKey(open.StreamId)) break; // поздний дубль OPEN
                     if (!_streams.TryAdd(open.StreamId, s)) break;
                     _early.Remove(open.StreamId, out var e);
                     early = e.Frames;
@@ -664,8 +712,10 @@ public sealed class ChameleonSession : IAsyncDisposable
                 if (TryGetStreamOrPark(fin.StreamId, fin, out var fs))
                     await fs.ReceiveFinAsync(fin.FinalOffset, cancellationToken).ConfigureAwait(false);
                 break;
-            case StreamResetFrame reset when _streams.TryRemove(reset.StreamId, out var st):
-                st.CompleteInbound(new IOException($"Поток сброшен, код {reset.ErrorCode}"));
+            case StreamResetFrame reset:
+                if (_streams.TryGetValue(reset.StreamId, out var rs))
+                    rs.CompleteInbound(new IOException($"Поток сброшен, код {reset.ErrorCode}"));
+                ReleaseStream(reset.StreamId); // и RESET, обогнавший OPEN, не даст потоку подняться
                 break;
             default:
                 break;
@@ -681,14 +731,14 @@ public sealed class ChameleonSession : IAsyncDisposable
     {
         if (_streams.TryGetValue(streamId, out stream!)) return true;
 
-        bool peerStream = (streamId & 1) == (_isClient ? 0UL : 1UL);
-        if (!peerStream) return false; // наш поток, уже закрытый - поздний дубль
+        if (!IsPeerStream(streamId)) return false; // наш поток, уже закрытый - поздний дубль
 
         // Данные указывают в буфер приёма несущей, который переиспользуется - копируем.
         if (frame is StreamFrame sf) frame = sf with { Data = sf.Data.ToArray() };
         lock (_early)
         {
             if (_streams.TryGetValue(streamId, out stream!)) return true; // OPEN успел между проверками
+            if (_closedPeerStreams.ContainsKey(streamId)) return false;   // поздний дубль закрытого
             if (!_early.TryGetValue(streamId, out var e))
             {
                 if (_early.Count >= MaxEarlyStreams) return false;
@@ -711,6 +761,9 @@ public sealed class ChameleonSession : IAsyncDisposable
             foreach (var (id, e) in _early)
                 if (now - e.SinceTicks > EarlyFrameTtlMs)
                     _early.Remove(id);
+            foreach (var (id, since) in _closedPeerStreams)
+                if (now - since > ClosedStreamTtlMs)
+                    _closedPeerStreams.Remove(id);
         }
     }
 
@@ -793,6 +846,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
+        _cc.Abort(new ObjectDisposedException(nameof(ChameleonSession)));
         Carrier[] carriers;
         lock (_carriers) carriers = [.. _carriers];
         foreach (var c in carriers)

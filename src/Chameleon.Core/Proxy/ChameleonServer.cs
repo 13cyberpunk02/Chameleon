@@ -332,6 +332,10 @@ public sealed class ChameleonServer : IAsyncDisposable
                     // ignored
                 }
             }
+            finally
+            {
+                session.ReleaseStream(stream.Id);
+            }
 
             return;
         }
@@ -356,6 +360,7 @@ public sealed class ChameleonServer : IAsyncDisposable
         }
         finally
         {
+            session.ReleaseStream(stream.Id);
             try
             {
                 target.Dispose();
