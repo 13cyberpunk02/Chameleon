@@ -20,11 +20,6 @@ export class ThemeService {
     this.apply();
   }
 
-  cycle(): void {
-    const order: Theme[] = ['system', 'light', 'dark'];
-    this.set(order[(order.indexOf(this.theme()) + 1) % order.length]);
-  }
-
   /** Итоговая (эффективная) тема с учётом system. */
   effective(): 'light' | 'dark' {
     const t = this.theme();
@@ -34,9 +29,5 @@ export class ThemeService {
 
   private apply(): void {
     document.documentElement.setAttribute('data-theme', this.effective());
-  }
-
-  label(): string {
-    return this.theme() === 'system' ? '🖥 Система' : this.theme() === 'light' ? '☀️ Светлая' : '🌙 Тёмная';
   }
 }

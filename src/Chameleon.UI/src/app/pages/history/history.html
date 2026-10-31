@@ -1,0 +1,42 @@
+<a matButton routerLink="/clients">
+  <mat-icon>arrow_back</mat-icon>
+  Клиенты
+</a>
+
+<div class="head">
+  <div>
+    <h1>История трафика</h1>
+    <p class="muted sub">{{ name() || 'Без имени' }} · <span class="mono">{{ shortKey(key, 20) }}</span></p>
+  </div>
+  <mat-form-field appearance="outline" class="period" subscriptSizing="dynamic">
+    <mat-label>Период</mat-label>
+    <mat-select [ngModel]="days()" (ngModelChange)="setDays($event)">
+      @for (d of periods; track d) {
+        <mat-option [value]="d">{{ d }} дней</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+</div>
+
+<mat-card appearance="outlined">
+  <mat-card-content>
+    @if (loadError()) {
+      <div class="state">
+        <p class="err">Не удалось загрузить историю</p>
+        <button matButton (click)="load()">Повторить</button>
+      </div>
+    } @else if (points() === null) {
+      <p class="muted state">Загрузка…</p>
+    } @else if (points()!.length === 0) {
+      <p class="muted state">За этот период трафика не было</p>
+    } @else {
+      <div class="totals">
+        <span>↓ {{ bytes(totalDown()) }}</span>
+        <span>↑ {{ bytes(totalUp()) }}</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas baseChart [type]="'bar'" [data]="chartData()" [options]="chartOptions"></canvas>
+      </div>
+    }
+  </mat-card-content>
+</mat-card>

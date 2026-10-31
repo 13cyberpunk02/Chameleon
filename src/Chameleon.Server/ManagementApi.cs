@@ -205,7 +205,10 @@ public sealed class ManagementApi : IDisposable
                     }
 
                     var ok = _store.SetEnabled(key, body.Enabled);
-                    await Write(res, ok ? 200 : 404, new { ok });
+                    var closed = ok && !body.Enabled
+                        ? _server.CloseSessionsForClient(key, "выключен из панели")
+                        : 0;
+                    await Write(res, ok ? 200 : 404, new { ok, closed });
                     break;
                 }
 
@@ -213,7 +216,8 @@ public sealed class ManagementApi : IDisposable
                 {
                     var key = p["/api/clients/".Length..];
                     var ok = _store.Remove(key);
-                    await Write(res, ok ? 200 : 404, new { ok });
+                    var closed = ok ? _server.CloseSessionsForClient(key, "удалён из панели") : 0;
+                    await Write(res, ok ? 200 : 404, new { ok, closed });
                     break;
                 }
 

@@ -72,10 +72,10 @@ var historySampler = new HistorySampler(server, store, TimeSpan.FromSeconds(hist
 historySampler.Start();
 
 var enforceSec = int.TryParse(Env("CHAMELEON_ENFORCE_INTERVAL", "10"), out var es) ? Math.Max(3, es) : 10;
-var enforcement = new EnforcementRunner(server, store,
-    [new LimitPolicy()], TimeSpan.FromSeconds(enforceSec));
+IEnforcementPolicy[] policies = [new LimitPolicy(), new DisabledPolicy()];
+var enforcement = new EnforcementRunner(server, store, policies, TimeSpan.FromSeconds(enforceSec));
 enforcement.Start();
-Console.WriteLine($"enforcement: политик={1}, интервал={enforceSec}с");
+Console.WriteLine($"enforcement: политик={policies.Length}, интервал={enforceSec}с");
 
 var historyDays = int.TryParse(Env("CHAMELEON_HISTORY_DAYS", "90"), out var hd) ? Math.Max(7, hd) : 90;
 store.PurgeHistory(historyDays);

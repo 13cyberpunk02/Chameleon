@@ -1,6 +1,7 @@
 import {Component, inject, OnDestroy, OnInit, signal} from '@angular/core';
 import {ApiService, ClientAccount} from '../../core/api.service';
 import {humanBytes, shortKey, timeAgo} from '../../core/format';
+import {copyText} from '../../core/clipboard';
 import {FormsModule} from '@angular/forms';
 import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
 import {MatSlideToggleModule} from '@angular/material/slide-toggle';
@@ -31,8 +32,14 @@ export class Clients implements OnInit, OnDestroy {
   newKey = '';
   newName = '';
   busy = signal(false);
+  loaded = signal(false);
+  loadError = signal(false);
+  allowlist = signal<boolean | null>(null);
 
-  cols = ['online', 'name', 'key', 'down', 'up', 'limit', 'seen', 'enabled', 'added', 'actions'];
+  /** Без него строки пересоздаются при каждом обновлении, и открытое меню строки закрывается. */
+  trackClient = (_: number, c: ClientAccount) => c.publicKeyHex;
+
+  cols =['online', 'name', 'key', 'down', 'up', 'limit', 'seen', 'enabled', 'added', 'actions'];
   key = (k: string) => shortKey(k, 20);
   date = (iso: string) => new Date(iso).toLocaleString();
   bytes = humanBytes;
@@ -52,7 +59,7 @@ export class Clients implements OnInit, OnDestroy {
 
   editLimit(c: ClientAccount): void {
     const curGb = c.limitBytes ? (c.limitBytes / (1024 ** 3)).toFixed(1) : '0';
-    const input = prompt(`Лимit download за 30 дней для «${c.name || c.publicKeyHex.slice(0, 12)}», ГБ (0 = безлимит):`, curGb);
+    const input = prompt(`Лимит download за 30 дней для «${c.name || c.publicKeyHex.slice(0, 12)}», ГБ (0 = безлимит):`, curGb);
     if (input === null) return;
     const gb = parseFloat(input.replace(',', '.'));
     if (isNaN(gb) || gb < 0) {
@@ -72,6 +79,7 @@ export class Clients implements OnInit, OnDestroy {
   private timer?: any;
 
   ngOnInit(): void {
+    this.api.server().subscribe({next: s => this.allowlist.set(s.allowlist)});
     this.reload();
     this.timer = setInterval(() => this.reload(), 5000);
   }
@@ -81,7 +89,14 @@ export class Clients implements OnInit, OnDestroy {
   }
 
   private reload(): void {
-    this.api.clients().subscribe({next: v => this.clients.set(v)});
+    this.api.clients().subscribe({
+      next: v => {
+        this.clients.set(v);
+        this.loaded.set(true);
+        this.loadError.set(false);
+      },
+      error: () => this.loadError.set(true),
+    });
   }
 
   private toast(m: string): void {
@@ -107,8 +122,7 @@ export class Clients implements OnInit, OnDestroy {
   }
 
   copyLink(link: string): void {
-    navigator.clipboard?.writeText(link).then(() => this.toast('Ссылка скопирована'), () => {
-    });
+    copyText(link).then(ok => this.toast(ok ? 'Ссылка скопирована' : 'Не удалось скопировать: выделите ссылку вручную'));
   }
 
   add(): void {
@@ -135,8 +149,8 @@ export class Clients implements OnInit, OnDestroy {
 
   toggle(c: ClientAccount, enabled: boolean): void {
     this.api.setEnabled(c.publicKeyHex, enabled).subscribe({
-      next: () => {
-        this.toast(enabled ? 'Включён' : 'Выключен');
+      next: (r: any) => {
+        this.toast(enabled ? 'Включён' : `Выключен (закрыто сессий: ${r?.closed ?? 0})`);
         this.reload();
       },
       error: () => {
@@ -149,8 +163,8 @@ export class Clients implements OnInit, OnDestroy {
   remove(c: ClientAccount): void {
     if (!confirm(`Удалить клиента ${c.name || c.publicKeyHex.slice(0, 12)}?`)) return;
     this.api.removeClient(c.publicKeyHex).subscribe({
-      next: () => {
-        this.toast('Удалён');
+      next: (r: any) => {
+        this.toast(`Удалён (закрыто сессий: ${r?.closed ?? 0})`);
         this.reload();
       },
       error: () => this.toast('Ошибка удаления'),

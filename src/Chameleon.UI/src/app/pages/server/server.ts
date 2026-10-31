@@ -14,6 +14,12 @@ import {MatCardModule} from '@angular/material/card';
 export class Server implements OnInit {
   private api = inject(ApiService);
   info = signal<ServerInfo | null>(null);
+  loadError = signal(false);
   uptime = humanUptime;
-  ngOnInit(): void { this.api.server().subscribe({ next: v => this.info.set(v) }); }
+  ngOnInit(): void {
+    this.api.server().subscribe({
+      next: v => this.info.set(v),
+      error: () => this.loadError.set(true),
+    });
+  }
 }

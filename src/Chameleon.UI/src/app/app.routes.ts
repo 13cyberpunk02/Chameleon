@@ -11,6 +11,7 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
       { path: 'dashboard', loadComponent: () => import('./pages/dashboard/dashboard').then(m => m.Dashboard) },
       { path: 'clients', loadComponent: () => import('./pages/clients/clients').then(m => m.Clients) },
+      { path: 'history/:key', loadComponent: () => import('./pages/history/history').then(m => m.History) },
       { path: 'server', loadComponent: () => import('./pages/server/server').then(m => m.Server) },
     ],
   },

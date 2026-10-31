@@ -11,6 +11,8 @@ namespace Chameleon.Server;
 ///
 /// Реализует IClientStore (allowlist). Проверка лимита при подключении:
 /// если download за текущий период >= limit_bytes (и limit>0) - не пускаем.
+/// Без allowlist пускаем и незнакомых, но известного клиента, который выключен или
+/// превысил лимит, не пускаем всё равно: иначе переключатель в панели ничего не значит.
 ///
 /// Периоды скользящие: period_start хранится на клиента; при наступлении нового
 /// периода (сейчас > period_start + 30д) трафик периода обнуляется, period_start
@@ -26,6 +28,7 @@ public sealed class SqliteStore : IClientStore, IDisposable
     private static readonly TimeSpan Period = TimeSpan.FromDays(30);
 
     private volatile HashSet<string> _allowedCache = new();
+    private volatile HashSet<string> _blockedCache = new();
     private readonly object _lock = new();
 
     public SqliteStore(string dbPath, bool enforced)
@@ -145,8 +148,8 @@ public sealed class SqliteStore : IClientStore, IDisposable
     /// <summary>Горячий путь: разрешён ли ключ (enabled и не превысил лимит). Из кэша.</summary>
     public bool IsAllowed(string publicKeyHex)
     {
-        if (!_enforced) return true;
-        return _allowedCache.Contains(publicKeyHex.ToLowerInvariant());
+        string key = publicKeyHex.ToLowerInvariant();
+        return _enforced ? _allowedCache.Contains(key) : !_blockedCache.Contains(key);
     }
 
     public IReadOnlyList<ClientAccount> List()
@@ -317,25 +320,36 @@ public sealed class SqliteStore : IClientStore, IDisposable
 
     private void RefreshCacheAll(IDbConnection c)
     {
-        var allowed = c.Query<string>(@"
-            SELECT c.key FROM clients c LEFT JOIN traffic t ON t.key=c.key
-            WHERE c.enabled=1 AND (c.limit_bytes=0 OR COALESCE(t.period_down,0) < c.limit_bytes)")
-            .ToHashSet();
-        lock (_lock) _allowedCache = allowed;
+        var rows = c.Query<(string Key, long Ok)>(@"
+            SELECT c.key, CASE WHEN c.enabled=1 AND (c.limit_bytes=0 OR COALESCE(t.period_down,0) < c.limit_bytes)
+                               THEN 1 ELSE 0 END
+            FROM clients c LEFT JOIN traffic t ON t.key=c.key").ToList();
+        var allowed = rows.Where(r => r.Ok == 1).Select(r => r.Key).ToHashSet();
+        var blocked = rows.Where(r => r.Ok != 1).Select(r => r.Key).ToHashSet();
+        lock (_lock)
+        {
+            _allowedCache = allowed;
+            _blockedCache = blocked;
+        }
     }
 
     private void RefreshCacheKey(IDbConnection c, string key)
     {
-        var ok = c.ExecuteScalar<long>(@"
+        // null - клиента нет в БД: незнакомый ключ не разрешён явно, но и не заблокирован.
+        var ok = c.ExecuteScalar<long?>(@"
             SELECT CASE WHEN c.enabled=1 AND (c.limit_bytes=0 OR COALESCE(t.period_down,0) < c.limit_bytes)
                         THEN 1 ELSE 0 END
             FROM clients c LEFT JOIN traffic t ON t.key=c.key WHERE c.key=@k", new { k = key });
         lock (_lock)
         {
-            var set = new HashSet<string>(_allowedCache);
-            if (ok == 1) set.Add(key);
-            else set.Remove(key);
-            _allowedCache = set;
+            var allowed = new HashSet<string>(_allowedCache);
+            var blocked = new HashSet<string>(_blockedCache);
+            if (ok == 1) allowed.Add(key);
+            else allowed.Remove(key);
+            if (ok == 0) blocked.Add(key);
+            else blocked.Remove(key);
+            _allowedCache = allowed;
+            _blockedCache = blocked;
         }
     }
 

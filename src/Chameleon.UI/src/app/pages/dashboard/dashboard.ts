@@ -1,6 +1,6 @@
-import {Component, inject, OnDestroy, OnInit, signal} from '@angular/core';
+import {Component, computed, inject, OnDestroy, OnInit, signal} from '@angular/core';
 import {ApiService, LogEntry, Session, Stats} from '../../core/api.service';
-import {Subscription, switchMap, timer} from 'rxjs';
+import {catchError, EMPTY, forkJoin, Subscription, switchMap, timer} from 'rxjs';
 import {humanBytes, humanUptime, shortKey, timeAgo} from '../../core/format';
 import {RefreshService} from '../../core/refresh.service';
 import {FormsModule} from '@angular/forms';
@@ -28,6 +28,7 @@ export class Dashboard implements OnInit, OnDestroy {
   sessions = signal<Session[]>([]);
   events = signal<LogEntry[]>([]);
   speeds = signal<{ down: number; up: number }[]>([]);
+  loadError = signal(false);
   private prev: { to: number; from: number; t: number } | null = null;
 
   sessionCols = ['ip', 'client', 'carriers', 'streams', 'down', 'up', 'uptime'];
@@ -49,15 +50,25 @@ export class Dashboard implements OnInit, OnDestroy {
 
   private startPolling(): void {
     this.sub?.unsubscribe();
+    this.loadError.set(false);
     const ms = this.refresh.intervalMs();
     if (ms <= 0) return;
-    this.sub = timer(0, ms).pipe(switchMap(() => this.api.stats())).subscribe({
-      next: (s) => {
-        this.stats.set(s);
-        this.pushSpeed(s);
-        this.api.sessions().subscribe({next: v => this.sessions.set(v)});
-        this.api.events(50).subscribe({next: v => this.events.set(v)});
-      },
+    // Ошибку ловим внутри switchMap: снаружи она завершила бы поток, и опрос остановился бы навсегда.
+    this.sub = timer(0, ms).pipe(
+      switchMap(() => forkJoin({
+        stats: this.api.stats(),
+        sessions: this.api.sessions(),
+        events: this.api.events(50),
+      }).pipe(catchError(() => {
+        this.loadError.set(true);
+        return EMPTY;
+      }))),
+    ).subscribe(({stats, sessions, events}) => {
+      this.loadError.set(false);
+      this.stats.set(stats);
+      this.pushSpeed(stats);
+      this.sessions.set(sessions);
+      this.events.set(events);
     });
   }
 
@@ -76,7 +87,7 @@ export class Dashboard implements OnInit, OnDestroy {
   curDown = () => this.bytes(this.speeds().at(-1)?.down ?? 0);
   curUp = () => this.bytes(this.speeds().at(-1)?.up ?? 0);
 
-  chartData = (): ChartData<'line'> => {
+  chartData = computed<ChartData<'line'>>(() => {
     const a = this.speeds();
     const labels = a.map(() => '');
     return {
@@ -92,7 +103,7 @@ export class Dashboard implements OnInit, OnDestroy {
         },
       ],
     };
-  };
+  });
 
   chartOptions: ChartConfiguration<'line'>['options'] = {
     responsive: true,

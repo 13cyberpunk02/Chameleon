@@ -41,6 +41,12 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly bool _proxyProtocol;
     private readonly IClientStore? _clients;
     private readonly ConcurrentDictionary<string, Registered> _sessions = new();
+
+    // Трафик закрытых сессий: вместе с активными даёт суммы с запуска, которые не падают
+    // при отключении клиента. Замок - чтобы сессия не выпала из суммы на момент перехода.
+    private readonly object _statsLock = new();
+    private long _closedBytesToClient;
+    private long _closedBytesFromClient;
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
@@ -223,7 +229,13 @@ public sealed class ChameleonServer : IAsyncDisposable
         }
         finally
         {
-            _sessions.TryRemove(sessionId, out _);
+            lock (_statsLock)
+            {
+                _sessions.TryRemove(sessionId, out _);
+                _closedBytesToClient += session.BytesSent;
+                _closedBytesFromClient += session.BytesReceived;
+            }
+
             var dur = DateTime.UtcNow - startedAt;
             _events?.Add("disconnect", remoteIp,
                 $"сессия закрыта, {FormatDuration(dur)}, ↑{Human(session.BytesReceived)} ↓{Human(session.BytesSent)}, активных={_sessions.Count}");
@@ -473,20 +485,23 @@ public sealed class ChameleonServer : IAsyncDisposable
         return list;
     }
 
-    /// <summary>Агрегированная статистика сервера.</summary>
+    /// <summary>Агрегированная статистика сервера: сессии и потоки - текущие, трафик - с запуска.</summary>
     public ServerStats Stats()
     {
-        var s = ActiveSessions();
-        long toC = 0, fromC = 0;
-        int streams = 0;
-        foreach (var x in s)
+        lock (_statsLock)
         {
-            toC += x.BytesToClient;
-            fromC += x.BytesFromClient;
-            streams += x.Streams;
-        }
+            var s = ActiveSessions();
+            long toC = _closedBytesToClient, fromC = _closedBytesFromClient;
+            int streams = 0;
+            foreach (var x in s)
+            {
+                toC += x.BytesToClient;
+                fromC += x.BytesFromClient;
+                streams += x.Streams;
+            }
 
-        return new ServerStats(s.Count, toC, fromC, streams);
+            return new ServerStats(s.Count, toC, fromC, streams);
+        }
     }
 
     public async ValueTask DisposeAsync()

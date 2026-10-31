@@ -35,6 +35,17 @@ public sealed class LimitPolicy : IEnforcementPolicy
     }
 }
 
+/// <summary>Клиент выключен, а сессия ещё жива -> закрыть (страховка к закрытию из API).</summary>
+public sealed class DisabledPolicy : IEnforcementPolicy
+{
+    public IEnumerable<EnforcementAction> Evaluate(IReadOnlyList<ClientView> clients)
+    {
+        foreach (var c in clients)
+            if (c is { Online: true, Enabled: false })
+                yield return new EnforcementAction(c.Key, Kick: true, Reason: "клиент выключен");
+    }
+}
+
 /// <summary>
 /// Фоновый исполнитель: раз в интервал строит снимок клиентов, прогоняет через все
 /// политики и применяет действия (закрывает сессии). Добавить фичу = добавить политику.

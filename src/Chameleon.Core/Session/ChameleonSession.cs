@@ -106,6 +106,7 @@ public sealed class ChameleonSession : IAsyncDisposable
     public Task Completion => _completed.Task;
 
     private int _rrIndex;
+    private int _disposed;
     private Task? _coverLoop;
     private Task? _rtoLoop;
 
@@ -845,6 +846,8 @@ public sealed class ChameleonSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Сессию закрывают дважды: кик из панели и затем завершение её обработчика на сервере.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _cts.Cancel();
         _cc.Abort(new ObjectDisposedException(nameof(ChameleonSession)));
         Carrier[] carriers;

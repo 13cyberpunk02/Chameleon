@@ -16,6 +16,21 @@ export function shortKey(hex: string, n = 12): string {
   return hex.length > n ? hex.slice(0, n) + '…' : hex;
 }
 
+/** Сервер отдаёт только дни с трафиком; для графика дополняем пропуски нулями (даты UTC, от старых к новым). */
+export function fillDays<T extends { day: string; down: number; up: number }>(
+  points: T[], days: number, now = new Date(),
+): { day: string; down: number; up: number }[] {
+  const byDay = new Map(points.map(p => [p.day, p]));
+  const result: { day: string; down: number; up: number }[] = [];
+  for (let i = days; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
+    const day = d.toISOString().slice(0, 10);
+    const p = byDay.get(day);
+    result.push({day, down: p?.down ?? 0, up: p?.up ?? 0});
+  }
+  return result;
+}
+
 export function timeAgo(iso: string): string {
   const d = new Date(iso).getTime();
   const diff = Math.max(0, Math.floor((Date.now() - d) / 1000));

@@ -1,5 +1,20 @@
 <h1>Клиенты</h1>
-<p class="muted sub">Разрешённые клиентские ключи (allowlist). Изменения применяются сразу, без перезапуска сервера.</p>
+<p class="muted sub">Клиентские ключи и их лимиты. Изменения применяются сразу: сессии выключенного или удалённого клиента закрываются.</p>
+
+@if (allowlist() === false) {
+  <p class="notice">
+    <mat-icon>warning</mat-icon>
+    <span>Allowlist выключен (CHAMELEON_ALLOWLIST): подключиться может любой клиент, знающий ключ сервера. Выключенные
+      клиенты и клиенты сверх лимита не подключатся, но удалённый клиент подключится снова как незнакомый.</span>
+  </p>
+}
+
+@if (loadError()) {
+  <p class="notice error">
+    <mat-icon>cloud_off</mat-icon>
+    <span>Нет связи с сервером: список может быть устаревшим. Продолжаю попытки…</span>
+  </p>
+}
 
 <mat-card appearance="outlined" class="add">
   <mat-card-content>
@@ -50,11 +65,12 @@
 
 <mat-card appearance="outlined">
   <mat-card-content>
-    @if (clients().length === 0) {
-      <p class="muted empty">Список пуст. Пока allowlist не включён (CHAMELEON_ALLOWLIST=1) - подключается любой
-        клиент.</p>
+    @if (!loaded()) {
+      <p class="muted empty">{{ loadError() ? 'Список не загружен' : 'Загрузка…' }}</p>
+    } @else if (clients().length === 0) {
+      <p class="muted empty">Клиентов пока нет</p>
     } @else {
-      <table mat-table [dataSource]="clients()" class="full">
+      <table mat-table [dataSource]="clients()" [trackBy]="trackClient" class="full">
         <ng-container matColumnDef="name">
           <th mat-header-cell *matHeaderCellDef>Имя</th>
           <td mat-cell *matCellDef="let c">{{ c.name || '-' }}</td>

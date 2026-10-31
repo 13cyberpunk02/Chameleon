@@ -10,6 +10,13 @@
   </mat-form-field>
 </div>
 
+@if (loadError()) {
+  <p class="load-error">
+    <mat-icon>cloud_off</mat-icon>
+    Нет связи с сервером: данные ниже могут быть устаревшими. Продолжаю попытки…
+  </p>
+}
+
 <div class="metrics">
   <mat-card appearance="outlined">
     <mat-card-content>
@@ -25,13 +32,13 @@
   </mat-card>
   <mat-card appearance="outlined">
     <mat-card-content>
-      <div class="label">Клиентам ↓</div>
+      <div class="label">Клиентам ↓ с запуска</div>
       <div class="value">{{ stats() ? bytes(stats()!.totalBytesToClient) : '-' }}</div>
     </mat-card-content>
   </mat-card>
   <mat-card appearance="outlined">
     <mat-card-content>
-      <div class="label">От клиентов ↑</div>
+      <div class="label">От клиентов ↑ с запуска</div>
       <div class="value">{{ stats() ? bytes(stats()!.totalBytesFromClient) : '-' }}</div>
     </mat-card-content>
   </mat-card>
