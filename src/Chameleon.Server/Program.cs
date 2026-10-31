@@ -4,7 +4,10 @@
 //   CHAMELEON_SNI      домен прикрытия / CN серта  (по умолчанию www.example-cdn.com)
 //   CHAMELEON_CERT_PFX путь к .pfx (боевой серт)   (иначе - самоподписанный по SNI)
 //   CHAMELEON_CERT_PASS пароль к .pfx
-//   CHAMELEON_DECOY    сайт-декой host:port        (иначе - статическая заглушка)
+//   CHAMELEON_DECOY    сайт-декой host:port, без TLS (иначе - статическая заглушка)
+//   CHAMELEON_API_TOKEN токен панели/API           (пусто - API выключен)
+//   CHAMELEON_API_LISTEN префикс HttpListener      (по умолчанию http://+:9090/)
+//   CHAMELEON_API_TRUST_PROXY=1  верить X-Real-IP/X-Forwarded-Proto (только за своим nginx)
 
 using System.Net;
 using System.Security.Cryptography;
@@ -23,7 +26,7 @@ var certPfx = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PFX");
 var certPass = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PASS");
 var certPem = Environment.GetEnvironmentVariable("CHAMELEON_CERT_PEM");
 var keyPem = Environment.GetEnvironmentVariable("CHAMELEON_KEY_PEM");
-var decoy = Environment.GetEnvironmentVariable("CHAMELEON_DECOY");
+var decoy = Environment.GetEnvironmentVariable("CHAMELEON_DECOY") is { Length: > 0 } decoyValue ? decoyValue : null;
 var proxyProtocol = Env("CHAMELEON_PROXY_PROTOCOL", "0") is "1" or "true";
 var allowlist = Env("CHAMELEON_ALLOWLIST", "0") is "1" or "true";
 var clientsFile = Env("CHAMELEON_CLIENTS_FILE", "/data/clients.json");
@@ -99,7 +102,11 @@ var apiListen = Env("CHAMELEON_API_LISTEN", "http://+:9090/");
 ManagementApi? api = null;
 if (!string.IsNullOrWhiteSpace(apiToken))
 {
-    api = new ManagementApi(apiListen, apiToken, server, events, store, pubKeyHex, sni, publicAddr);
+    var apiTrustProxy = Env("CHAMELEON_API_TRUST_PROXY", "0") is "1" or "true";
+    var ownCertificate = (certPem is { Length: > 0 } && keyPem is { Length: > 0 } && File.Exists(certPem) && File.Exists(keyPem)) ||
+                         (certPfx is { Length: > 0 } && File.Exists(certPfx));
+    api = new ManagementApi(apiListen, apiToken, server, events, store, pubKeyHex, sni, publicAddr,
+        ownCertificate, decoyEndpoint is not null, apiTrustProxy);
     api.Start();
     Console.WriteLine($"management API: {apiListen} (Bearer-токен задан)");
 }

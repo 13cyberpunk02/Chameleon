@@ -33,16 +33,18 @@ export class Login {
     }
     this.busy.set(true);
     this.error.set('');
-    this.auth.login(t);
-    this.api.server().subscribe({
+    this.api.login(t).subscribe({
       next: () => {
         this.busy.set(false);
+        this.auth.markLoggedIn();
         this.router.navigate(['/dashboard']);
       },
       error: (e) => {
         this.busy.set(false);
-        this.auth.logout();
-        this.error.set(e.status === 401 ? 'Неверный токен' : 'Сервер недоступен');
+        this.error.set(
+          e.status === 401 ? 'Неверный токен'
+            : e.status === 429 ? 'Слишком много попыток. Подождите минуту.'
+              : 'Сервер недоступен');
       },
     });
   }

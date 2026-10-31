@@ -1,5 +1,9 @@
 import {Component, computed, inject, OnDestroy, OnInit, signal} from '@angular/core';
-import {ApiService, LogEntry, Session, Stats} from '../../core/api.service';
+import {ApiService, ClientAccount, Health, LogEntry, Session, Stats} from '../../core/api.service';
+import {ClientActions} from '../../core/client-actions.service';
+import {MatButtonModule} from '@angular/material/button';
+import {MatTooltipModule} from '@angular/material/tooltip';
+import {RouterLink} from '@angular/router';
 import {catchError, EMPTY, forkJoin, Subscription, switchMap, timer} from 'rxjs';
 import {humanBytes, humanUptime, shortKey, timeAgo} from '../../core/format';
 import {RefreshService} from '../../core/refresh.service';
@@ -14,15 +18,22 @@ import {ChartConfiguration, ChartData} from 'chart.js';
 import {BaseChartDirective} from 'ng2-charts';
 
 @Component({
-  imports: [FormsModule, MatCardModule, MatTableModule, MatChipsModule, MatFormFieldModule, MatSelectModule, MatIconModule, BaseChartDirective],
+  imports: [FormsModule, RouterLink, MatButtonModule, MatTooltipModule, MatCardModule, MatTableModule, MatChipsModule, MatFormFieldModule, MatSelectModule, MatIconModule, BaseChartDirective],
   selector: 'app-dashboard',
   styleUrl: './dashboard.scss',
   templateUrl: './dashboard.html',
 })
 export class Dashboard implements OnInit, OnDestroy {
   private api = inject(ApiService);
+  private actions = inject(ClientActions);
   refresh = inject(RefreshService);
   private sub?: Subscription;
+  private healthSub?: Subscription;
+  private static readonly HEALTH_REFRESH_MS = 30_000;
+
+  health = signal<Health | null>(null);
+  private clients = signal<ClientAccount[]>([]);
+  private clientNames = computed(() => new Map(this.clients().map(c => [c.publicKeyHex, c.name])));
 
   stats = signal<Stats | null>(null);
   sessions = signal<Session[]>([]);
@@ -31,7 +42,7 @@ export class Dashboard implements OnInit, OnDestroy {
   loadError = signal(false);
   private prev: { to: number; from: number; t: number } | null = null;
 
-  sessionCols = ['ip', 'client', 'carriers', 'streams', 'down', 'up', 'uptime'];
+  sessionCols = ['ip', 'client', 'carriers', 'streams', 'down', 'up', 'uptime', 'actions'];
   eventCols = ['time', 'event', 'ip', 'detail'];
 
   bytes = humanBytes;
@@ -39,8 +50,19 @@ export class Dashboard implements OnInit, OnDestroy {
   key = (k: string) => shortKey(k, 12);
   ago = timeAgo;
 
+  /** Клиент есть в базе: у него есть карточка. Незнакомые возможны при выключенном allowlist. */
+  isKnown = (key: string) => this.clientNames().has(key);
+  clientLabel = (key: string) => this.clientNames().get(key) || (this.isKnown(key) ? 'Без имени' : 'Незнакомый');
+
+  kick(s: Session): void {
+    this.actions.kick({name: this.clientNames().get(s.clientKey) ?? '', publicKeyHex: s.clientKey}).subscribe();
+  }
+
   ngOnInit(): void {
     this.startPolling();
+    this.healthSub = timer(0, Dashboard.HEALTH_REFRESH_MS)
+      .pipe(switchMap(() => this.api.health().pipe(catchError(() => EMPTY))))
+      .subscribe(h => this.health.set(h));
   }
 
   setInterval(ms: number): void {
@@ -59,12 +81,14 @@ export class Dashboard implements OnInit, OnDestroy {
         stats: this.api.stats(),
         sessions: this.api.sessions(),
         events: this.api.events(50),
+        clients: this.api.clients(),
       }).pipe(catchError(() => {
         this.loadError.set(true);
         return EMPTY;
       }))),
-    ).subscribe(({stats, sessions, events}) => {
+    ).subscribe(({stats, sessions, events, clients}) => {
       this.loadError.set(false);
+      this.clients.set(clients);
       this.stats.set(stats);
       this.pushSpeed(stats);
       this.sessions.set(sessions);
@@ -122,5 +146,6 @@ export class Dashboard implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.sub?.unsubscribe();
+    this.healthSub?.unsubscribe();
   }
 }

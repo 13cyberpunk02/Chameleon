@@ -42,6 +42,12 @@ export interface HistoryPoint {
   up: number;
 }
 
+export interface Health {
+  warnings: { code: string; text: string }[];
+  probesLastHour: number;
+  deniedLastHour: number;
+}
+
 export interface ClientAccount {
   publicKeyHex: string;
   name: string;
@@ -52,6 +58,8 @@ export interface ClientAccount {
   online?: boolean;
   lastSeenUtc?: string | null;
   periodDown?: number;
+  periodUp?: number;
+  periodStart?: string;
   limitBytes?: number;
   remaining?: number | null;
   overLimit?: boolean;
@@ -62,8 +70,24 @@ export class ApiService {
   private http = inject(HttpClient);
   private base = environment.apiBase;
 
+  login(token: string): Observable<any> {
+    return this.http.post(`${this.base}/api/login`, {token});
+  }
+
+  logout(): Observable<any> {
+    return this.http.post(`${this.base}/api/logout`, {});
+  }
+
   server(): Observable<ServerInfo> {
     return this.http.get<ServerInfo>(`${this.base}/api/server`);
+  }
+
+  health(): Observable<Health> {
+    return this.http.get<Health>(`${this.base}/api/health`);
+  }
+
+  renameClient(key: string, name: string): Observable<any> {
+    return this.http.patch(`${this.base}/api/clients/${key}/name`, {name});
   }
 
   stats(): Observable<Stats> {

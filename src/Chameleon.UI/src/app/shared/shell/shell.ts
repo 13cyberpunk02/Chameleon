@@ -1,4 +1,5 @@
 import {Component, inject, signal} from '@angular/core';
+import {ApiService} from '../../core/api.service';
 import {AuthService} from '../../core/auth.service';
 import {Router, RouterLink, RouterLinkActive, RouterOutlet} from '@angular/router';
 import {Theme, ThemeService} from '../../core/theme.service';
@@ -19,6 +20,7 @@ import {MatTooltip} from '@angular/material/tooltip';
 })
 export class Shell {
   private auth = inject(AuthService);
+  private api = inject(ApiService);
   private router = inject(Router);
   theme = inject(ThemeService);
 
@@ -47,7 +49,10 @@ export class Shell {
   }
 
   logout() {
-    this.auth.logout();
-    this.router.navigate(['/login']);
+    const leave = () => {
+      this.auth.clear();
+      this.router.navigate(['/login']);
+    };
+    this.api.logout().subscribe({next: leave, error: leave});
   }
 }

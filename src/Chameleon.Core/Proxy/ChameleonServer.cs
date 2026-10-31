@@ -47,6 +47,8 @@ public sealed class ChameleonServer : IAsyncDisposable
     private readonly object _statsLock = new();
     private long _closedBytesToClient;
     private long _closedBytesFromClient;
+    private const int MaxRecentClosed = 500;
+    private readonly Queue<ClosedSessionInfo> _recentClosed = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _acceptLoop;
 
@@ -237,6 +239,13 @@ public sealed class ChameleonServer : IAsyncDisposable
             }
 
             var dur = DateTime.UtcNow - startedAt;
+            lock (_recentClosed)
+            {
+                _recentClosed.Enqueue(new ClosedSessionInfo(DateTime.UtcNow, clientKey, dur, session.BytesSent,
+                    session.BytesReceived));
+                if (_recentClosed.Count > MaxRecentClosed) _recentClosed.Dequeue();
+            }
+
             _events?.Add("disconnect", remoteIp,
                 $"сессия закрыта, {FormatDuration(dur)}, ↑{Human(session.BytesReceived)} ↓{Human(session.BytesSent)}, активных={_sessions.Count}");
             try
@@ -483,6 +492,12 @@ public sealed class ChameleonServer : IAsyncDisposable
         }
 
         return list;
+    }
+
+    /// <summary>Недавно закрытые сессии (последние несколько сотен).</summary>
+    public IReadOnlyList<ClosedSessionInfo> RecentClosedSessions()
+    {
+        lock (_recentClosed) return [.. _recentClosed];
     }
 
     /// <summary>Агрегированная статистика сервера: сессии и потоки - текущие, трафик - с запуска.</summary>

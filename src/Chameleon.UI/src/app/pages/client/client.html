@@ -1,0 +1,161 @@
+<a matButton routerLink="/clients">
+  <mat-icon>arrow_back</mat-icon>
+  Клиенты
+</a>
+
+@if (loadError()) {
+  <p class="load-error">
+    <mat-icon>cloud_off</mat-icon>
+    Нет связи с сервером: данные ниже могут быть устаревшими. Продолжаю попытки…
+  </p>
+}
+
+@if (!loaded()) {
+  <p class="muted state">{{ loadError() ? 'Данные не загружены' : 'Загрузка…' }}</p>
+} @else if (client(); as c) {
+  <div class="head">
+    <div class="title">
+      <h1>
+        <span class="dot" [class.on]="c.online"></span>
+        {{ c.name || 'Без имени' }}
+        <button matIconButton (click)="rename(c)" aria-label="Переименовать">
+          <mat-icon>edit</mat-icon>
+        </button>
+      </h1>
+      <button class="key mono" (click)="copyKey()" title="Скопировать ключ">{{ c.publicKeyHex }}</button>
+    </div>
+    <div class="actions">
+      <button matButton="outlined" (click)="editLimit(c)">
+        <mat-icon>speed</mat-icon>
+        Лимит
+      </button>
+      @if (c.online) {
+        <button matButton="outlined" (click)="kick(c)">
+          <mat-icon>power_settings_new</mat-icon>
+          Отключить сейчас
+        </button>
+      }
+      <button matButton="outlined" (click)="setEnabled(c, !c.enabled)">
+        <mat-icon>{{ c.enabled ? 'block' : 'check_circle' }}</mat-icon>
+        {{ c.enabled ? 'Выключить' : 'Включить' }}
+      </button>
+      <button matButton="outlined" class="danger" (click)="remove(c)">
+        <mat-icon>delete</mat-icon>
+        Удалить
+      </button>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <div class="label">Статус</div>
+        <div class="value small">{{ !c.enabled ? 'Выключен' : c.online ? 'В сети' : 'Не в сети' }}</div>
+        <div class="muted note">
+          {{ c.online ? 'Сессий: ' + sessions().length : c.lastSeenUtc ? 'Был ' + ago(c.lastSeenUtc) : 'Ещё не подключался' }}
+        </div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <div class="label">Всего ↓</div>
+        <div class="value">{{ bytes(c.totalDown ?? 0) }}</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <div class="label">Всего ↑</div>
+        <div class="value">{{ bytes(c.totalUp ?? 0) }}</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <div class="label">Лимит на период</div>
+        @if (c.limitBytes) {
+          <div class="value small" [class.over]="c.overLimit">{{ bytes(c.periodDown ?? 0) }} / {{ bytes(c.limitBytes) }}</div>
+          <mat-progress-bar mode="determinate" [value]="limitPct()" [class.over]="c.overLimit"></mat-progress-bar>
+        } @else {
+          <div class="value small">Без лимита</div>
+          <div class="muted note">За период ↓ {{ bytes(c.periodDown ?? 0) }}</div>
+        }
+        @if (periodEnd(); as end) {
+          <div class="muted note">Новый период: {{ end }}</div>
+        }
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <h2>Активные сессии</h2>
+  <mat-card appearance="outlined" class="block">
+    <mat-card-content>
+      @if (sessions().length === 0) {
+        <p class="muted state">Нет активных сессий</p>
+      } @else {
+        <table mat-table [dataSource]="sessions()" class="full">
+          <ng-container matColumnDef="ip">
+            <th mat-header-cell *matHeaderCellDef>IP</th>
+            <td mat-cell *matCellDef="let s" class="mono">{{ s.remoteIp }}</td>
+          </ng-container>
+          <ng-container matColumnDef="carriers">
+            <th mat-header-cell *matHeaderCellDef>Несущих</th>
+            <td mat-cell *matCellDef="let s">{{ s.carriers }}</td>
+          </ng-container>
+          <ng-container matColumnDef="streams">
+            <th mat-header-cell *matHeaderCellDef>Потоков</th>
+            <td mat-cell *matCellDef="let s">{{ s.streams }}</td>
+          </ng-container>
+          <ng-container matColumnDef="down">
+            <th mat-header-cell *matHeaderCellDef>↓ клиенту</th>
+            <td mat-cell *matCellDef="let s">{{ bytes(s.bytesToClient) }}</td>
+          </ng-container>
+          <ng-container matColumnDef="up">
+            <th mat-header-cell *matHeaderCellDef>↑ от клиента</th>
+            <td mat-cell *matCellDef="let s">{{ bytes(s.bytesFromClient) }}</td>
+          </ng-container>
+          <ng-container matColumnDef="uptime">
+            <th mat-header-cell *matHeaderCellDef>Время</th>
+            <td mat-cell *matCellDef="let s">{{ uptime(s.uptimeSeconds) }}</td>
+          </ng-container>
+          <tr mat-header-row *matHeaderRowDef="sessionCols"></tr>
+          <tr mat-row *matRowDef="let row; columns: sessionCols"></tr>
+        </table>
+      }
+    </mat-card-content>
+  </mat-card>
+
+  <div class="history-head">
+    <h2>История трафика</h2>
+    <mat-form-field appearance="outline" class="period" subscriptSizing="dynamic">
+      <mat-label>Период</mat-label>
+      <mat-select [ngModel]="days()" (ngModelChange)="setDays($event)">
+        @for (d of periods; track d) {
+          <mat-option [value]="d">{{ d }} дней</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+  <mat-card appearance="outlined" class="block">
+    <mat-card-content>
+      @if (historyError()) {
+        <div class="state">
+          <p class="err">Не удалось загрузить историю</p>
+          <button matButton (click)="loadHistory()">Повторить</button>
+        </div>
+      } @else if (points() === null) {
+        <p class="muted state">Загрузка…</p>
+      } @else if (points()!.length === 0) {
+        <p class="muted state">За этот период трафика не было</p>
+      } @else {
+        <div class="totals">
+          <span>↓ {{ bytes(totalDown()) }}</span>
+          <span>↑ {{ bytes(totalUp()) }}</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas baseChart [type]="'bar'" [data]="chartData()" [options]="chartOptions"></canvas>
+        </div>
+      }
+    </mat-card-content>
+  </mat-card>
+} @else {
+  <p class="muted state">Такого клиента нет. Возможно, он удалён.</p>
+}

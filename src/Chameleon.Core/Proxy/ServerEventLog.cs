@@ -51,6 +51,14 @@ public sealed record SessionInfo(
     int Carriers,
     int Streams);
 
+/// <summary>Закрытая сессия: по серии коротких сессий без трафика видно обрывы и блокировки.</summary>
+public sealed record ClosedSessionInfo(
+    DateTime ClosedUtc,
+    string ClientKey,
+    TimeSpan Duration,
+    long BytesToClient,
+    long BytesFromClient);
+
 /// <summary>Агрегированная статистика сервера.</summary>
 public sealed record ServerStats(
     int ActiveSessions,

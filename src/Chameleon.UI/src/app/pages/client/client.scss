@@ -1,0 +1,158 @@
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.title {
+  min-width: 0;
+}
+
+.title h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.key {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 12px;
+  text-align: left;
+  word-break: break-all;
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: none;
+  max-width: 55%;
+}
+
+.danger {
+  color: var(--mat-sys-error);
+}
+
+@media (max-width: 800px) {
+  .head {
+    flex-direction: column;
+  }
+  .actions {
+    justify-content: flex-start;
+    max-width: none;
+  }
+}
+
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mat-sys-outline);
+}
+
+.dot.on {
+  background: #3fb950;
+  box-shadow: 0 0 6px #3fb950;
+}
+
+.load-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.label {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 12px;
+}
+
+.value {
+  font-size: 26px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.value.small {
+  font-size: 18px;
+}
+
+.value.over {
+  color: var(--mat-sys-error);
+}
+
+.note {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+mat-progress-bar {
+  margin-top: 8px;
+  border-radius: 4px;
+}
+
+mat-progress-bar.over {
+  --mdc-linear-progress-active-indicator-color: var(--mat-sys-error);
+}
+
+.block {
+  margin-bottom: 20px;
+}
+
+.full {
+  width: 100%;
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.period {
+  width: 140px;
+  flex: none;
+}
+
+.state {
+  text-align: center;
+  padding: 16px;
+}
+
+.err {
+  color: var(--mat-sys-error);
+}
+
+.totals {
+  display: flex;
+  gap: 18px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.chart-wrap {
+  height: 260px;
+}

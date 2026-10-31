@@ -27,7 +27,8 @@
               }
             ],
             "styles": ["src/styles.scss"],
-            "inlineStyleLanguage": "scss"
+            "inlineStyleLanguage": "scss",
+            "allowedCommonJsDependencies": ["qrcode-generator"]
           },
           "configurations": {
             "production": {
@@ -43,6 +44,14 @@
                   "maximumError": "8kB"
                 }
               ],
+              "optimization": {
+                "scripts": true,
+                "fonts": false,
+                "styles": {
+                  "minify": true,
+                  "inlineCritical": false
+                }
+              },
               "outputHashing": "all"
             },
             "development": {
@@ -61,6 +70,9 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          },
           "configurations": {
             "production": {
               "buildTarget": "Chameleon.UI:build:production"

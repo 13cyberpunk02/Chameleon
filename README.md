@@ -90,7 +90,7 @@ Chameleon целится не в одну из этих проблем, а во 
 
 ## Развёртывание на VPS
 
-Запуск сервера в Docker на VPS и клиента на Windows/Linux/mac описан в **[DEPLOY.md](DEPLOY.md)** (сервер `Chameleon.Server`, клиент `Chameleon.Client`).
+Поднять сервер одной командой: **[INSTALL.md](INSTALL.md)**. Ручной запуск сервера в Docker на VPS и клиента на Windows/Linux/mac описан в **[DEPLOY.md](DEPLOY.md)** (сервер `Chameleon.Server`, клиент `Chameleon.Client`).
 
 ## Сборка и запуск
 

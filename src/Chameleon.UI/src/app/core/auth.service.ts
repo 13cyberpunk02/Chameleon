@@ -1,26 +1,32 @@
 ﻿import { Injectable, signal } from '@angular/core';
 
 /**
- * Хранит API-токен (в localStorage). Честно: настоящая защита - на СЕРВЕРЕ (токен)
- * и в nginx (TLS/IP). Фронт лишь хранит токен и подставляет его в запросы.
+ * Состояние входа в панель. Сама сессия - в HttpOnly-cookie, её выдаёт сервер и скрипт
+ * страницы её не видит. Здесь только признак «вход выполнен», чтобы не показывать панель
+ * зря; настоящую проверку делает сервер (401 возвращает на экран входа).
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private static readonly KEY = 'chameleon.apiToken';
-  readonly token = signal<string | null>(localStorage.getItem(AuthService.KEY));
+  private static readonly KEY = 'chameleon.loggedIn';
+  private static readonly LEGACY_TOKEN_KEY = 'chameleon.apiToken';
+  readonly loggedIn = signal(localStorage.getItem(AuthService.KEY) === '1');
+
+  constructor() {
+    // Раньше здесь лежал сам API-токен: убираем его из браузера.
+    localStorage.removeItem(AuthService.LEGACY_TOKEN_KEY);
+  }
 
   get isAuthenticated(): boolean {
-    return !!this.token();
+    return this.loggedIn();
   }
 
-  login(token: string): void {
-    const t = token.trim();
-    localStorage.setItem(AuthService.KEY, t);
-    this.token.set(t);
+  markLoggedIn(): void {
+    localStorage.setItem(AuthService.KEY, '1');
+    this.loggedIn.set(true);
   }
 
-  logout(): void {
+  clear(): void {
     localStorage.removeItem(AuthService.KEY);
-    this.token.set(null);
+    this.loggedIn.set(false);
   }
 }

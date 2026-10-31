@@ -21,6 +21,8 @@ describe('Dashboard polling', () => {
             stats: () => (failing ? throwError(() => new Error('down')) : of(stats)),
             sessions: () => of([]),
             events: () => of([]),
+            clients: () => of([]),
+            health: () => of({ warnings: [], probesLastHour: 0, deniedLastHour: 0 }),
           },
         },
       ],

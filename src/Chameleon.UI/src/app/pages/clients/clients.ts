@@ -1,9 +1,10 @@
 import {Component, inject, OnDestroy, OnInit, signal} from '@angular/core';
 import {ApiService, ClientAccount} from '../../core/api.service';
+import {ClientActions} from '../../core/client-actions.service';
 import {humanBytes, shortKey, timeAgo} from '../../core/format';
-import {copyText} from '../../core/clipboard';
+import {Dialogs} from '../../shared/dialogs/dialogs';
 import {FormsModule} from '@angular/forms';
-import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
+import {MatSnackBarModule} from '@angular/material/snack-bar';
 import {MatSlideToggleModule} from '@angular/material/slide-toggle';
 import {MatIconModule} from '@angular/material/icon';
 import {MatButtonModule} from '@angular/material/button';
@@ -25,10 +26,10 @@ import {RouterLink} from '@angular/router';
 })
 export class Clients implements OnInit, OnDestroy {
   private api = inject(ApiService);
-  private snack = inject(MatSnackBar);
+  private dialogs = inject(Dialogs);
+  private actions = inject(ClientActions);
 
   clients = signal<ClientAccount[]>([]);
-  generated = signal<{ publicKey: string; privateKey: string; name: string; link: string } | null>(null);
   newKey = '';
   newName = '';
   busy = signal(false);
@@ -39,7 +40,7 @@ export class Clients implements OnInit, OnDestroy {
   /** Без него строки пересоздаются при каждом обновлении, и открытое меню строки закрывается. */
   trackClient = (_: number, c: ClientAccount) => c.publicKeyHex;
 
-  cols =['online', 'name', 'key', 'down', 'up', 'limit', 'seen', 'enabled', 'added', 'actions'];
+  cols = ['online', 'name', 'key', 'down', 'up', 'limit', 'seen', 'enabled', 'added', 'actions'];
   key = (k: string) => shortKey(k, 20);
   date = (iso: string) => new Date(iso).toLocaleString();
   bytes = humanBytes;
@@ -47,33 +48,19 @@ export class Clients implements OnInit, OnDestroy {
   pct = (c: ClientAccount) => c.limitBytes ? Math.min(100, ((c.periodDown || 0) / c.limitBytes) * 100) : 0;
 
   kick(c: ClientAccount): void {
-    if (!confirm(`Отключить сейчас клиента ${c.name || c.publicKeyHex.slice(0, 12)}?`)) return;
-    this.api.kick(c.publicKeyHex).subscribe({
-      next: (r: any) => {
-        this.toast(`Отключён (сессий: ${r?.closed ?? 0})`);
-        this.reload();
-      },
-      error: () => this.toast('Ошибка отключения'),
-    });
+    this.actions.kick(c).subscribe(() => this.reload());
   }
 
   editLimit(c: ClientAccount): void {
-    const curGb = c.limitBytes ? (c.limitBytes / (1024 ** 3)).toFixed(1) : '0';
-    const input = prompt(`Лимит download за 30 дней для «${c.name || c.publicKeyHex.slice(0, 12)}», ГБ (0 = безлимит):`, curGb);
-    if (input === null) return;
-    const gb = parseFloat(input.replace(',', '.'));
-    if (isNaN(gb) || gb < 0) {
-      this.toast('Некорректное число');
-      return;
-    }
-    const bytes = Math.round(gb * (1024 ** 3));
-    this.api.setLimit(c.publicKeyHex, bytes).subscribe({
-      next: () => {
-        this.toast(gb === 0 ? 'Лимит снят' : `Лимит: ${gb} ГБ`);
-        this.reload();
-      },
-      error: () => this.toast('Ошибка установки лимита'),
-    });
+    this.actions.editLimit(c).subscribe(() => this.reload());
+  }
+
+  rename(c: ClientAccount): void {
+    this.actions.rename(c).subscribe(() => this.reload());
+  }
+
+  remove(c: ClientAccount): void {
+    this.actions.remove(c).subscribe(() => this.reload());
   }
 
   private timer?: any;
@@ -99,36 +86,34 @@ export class Clients implements OnInit, OnDestroy {
     });
   }
 
-  private toast(m: string): void {
-    this.snack.open(m, 'OK', {duration: 3000});
-  }
-
   create(): void {
-    const name = prompt('Имя клиента (например, «Ноут Ивана»):', '');
-    if (name === null) return;
-    this.busy.set(true);
-    this.api.generateClient(name.trim()).subscribe({
-      next: (g) => {
-        this.busy.set(false);
-        this.generated.set(g);
-        this.reload();
-        this.toast('Клиент создан');
-      },
-      error: () => {
-        this.busy.set(false);
-        this.toast('Ошибка создания');
-      },
+    this.dialogs.prompt({
+      title: 'Новый клиент',
+      label: 'Имя',
+      hint: 'Например, «Ноутбук Ивана». Сервер создаст ключ и готовую ссылку.',
+      action: 'Создать',
+      validate: v => v.trim().length > 100 ? 'Не длиннее 100 символов' : null,
+    }).subscribe(name => {
+      if (name === undefined) return;
+      this.busy.set(true);
+      this.api.generateClient(name.trim()).subscribe({
+        next: (g) => {
+          this.busy.set(false);
+          this.dialogs.clientLink({name: g.name, link: g.link});
+          this.reload();
+        },
+        error: () => {
+          this.busy.set(false);
+          this.actions.toast('Ошибка создания');
+        },
+      });
     });
-  }
-
-  copyLink(link: string): void {
-    copyText(link).then(ok => this.toast(ok ? 'Ссылка скопирована' : 'Не удалось скопировать: выделите ссылку вручную'));
   }
 
   add(): void {
     const key = this.newKey.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(key)) {
-      this.toast('Ключ должен быть 64 hex-символа');
+      this.actions.toast('Ключ должен быть 64 hex-символа');
       return;
     }
     this.busy.set(true);
@@ -137,12 +122,12 @@ export class Clients implements OnInit, OnDestroy {
         this.busy.set(false);
         this.newKey = '';
         this.newName = '';
-        this.toast('Клиент добавлен');
+        this.actions.toast('Клиент добавлен');
         this.reload();
       },
       error: () => {
         this.busy.set(false);
-        this.toast('Ошибка добавления');
+        this.actions.toast('Ошибка добавления');
       },
     });
   }
@@ -150,24 +135,13 @@ export class Clients implements OnInit, OnDestroy {
   toggle(c: ClientAccount, enabled: boolean): void {
     this.api.setEnabled(c.publicKeyHex, enabled).subscribe({
       next: (r: any) => {
-        this.toast(enabled ? 'Включён' : `Выключен (закрыто сессий: ${r?.closed ?? 0})`);
+        this.actions.toast(enabled ? 'Включён' : `Выключен (закрыто сессий: ${r?.closed ?? 0})`);
         this.reload();
       },
       error: () => {
-        this.toast('Ошибка');
+        this.actions.toast('Ошибка');
         this.reload();
       },
-    });
-  }
-
-  remove(c: ClientAccount): void {
-    if (!confirm(`Удалить клиента ${c.name || c.publicKeyHex.slice(0, 12)}?`)) return;
-    this.api.removeClient(c.publicKeyHex).subscribe({
-      next: (r: any) => {
-        this.toast(`Удалён (закрыто сессий: ${r?.closed ?? 0})`);
-        this.reload();
-      },
-      error: () => this.toast('Ошибка удаления'),
     });
   }
 }

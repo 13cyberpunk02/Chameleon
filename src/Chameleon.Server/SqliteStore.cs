@@ -197,6 +197,13 @@ public sealed class SqliteStore : IClientStore, IDisposable
         return n > 0;
     }
 
+    public bool SetName(string publicKeyHex, string name)
+    {
+        using var c = Open();
+        return c.Execute("UPDATE clients SET name=@name WHERE key=@k",
+            new { name, k = publicKeyHex.ToLowerInvariant() }) > 0;
+    }
+
     public bool SetLimit(string publicKeyHex, long limitBytes)
     {
         using var c = Open();
